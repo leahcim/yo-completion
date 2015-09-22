@@ -1,0 +1,34 @@
+# Command completion for Yeoman
+# by Michael Ichnowski
+
+_yo_generators() {
+  local -r IFS=:
+
+  for i in $NODE_PATH; do
+    ls -d "$i"/generator-*/{,generators/}*/index.js 2>/dev/null
+  done | sed 's/.*generator-//;s|/index.js$||' | sort | uniq | tr '/' ':'
+}
+
+_yo() {
+  local -r HELP='-f --force --generators --help --insight \
+                 --no-color --no-insight --version'
+  local -r GENS=$( _yo_generators )
+  local cur prev
+  _get_comp_words_by_ref -n : cur prev
+  COMPREPLY=()
+
+  if [ "$prev" != 'yo' ] && [[ $prev != -* ]]; then
+    return 0
+  fi
+
+  case "$cur" in
+  -*)
+    COMPREPLY=( $(compgen -W "$HELP" -- "$cur") )
+    ;;
+  *)
+    COMPREPLY=( $(compgen -W  "$GENS" -- "$cur") )
+    __ltrim_colon_completions "$cur"
+  esac
+  return 0
+}
+complete -F _yo yo
