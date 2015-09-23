@@ -1,8 +1,53 @@
+# vim: ft=sh
 # Command completion for Yeoman
 # by Michael Ichnowski
 
+NODE_PATH=$(npm -g root)
+
+__yo_count_args() {
+  local args=1
+  for (( i=1; i < COMP_CWORD; i++ )); do
+    if [[ "${COMP_WORDS[i]}" != -* ]]; then
+      args=$(($args+1))
+    fi
+  done
+  echo $args
+}
+
+__yo_get_first_arg() {
+  local i
+  for (( i=1; i < COMP_CWORD; i++ )); do
+    if [[ "${COMP_WORDS[i]}" != -* ]]; then
+      echo "${COMP_WORDS[i]}"
+      return 0
+    fi
+  done
+}
+
+__yo_ltrim_colon_completions() {
+  # If word-to-complete contains a colon,
+  # and bash-version < 4,
+  # or bash-version >= 4 and COMP_WORDBREAKS contains a colon
+  local -r cur=$1
+  if [[
+      $cur == *:* && (
+        ${BASH_VERSINFO[0]} -lt 4 || 
+        (${BASH_VERSINFO[0]} -ge 4 && "$COMP_WORDBREAKS" == *:*)
+      )
+  ]]; then
+    # Remove word-colon prefix from COMPREPLY items
+    local i=${#COMPREPLY[*]}
+    local -r prefix=${cur%${cur##*:}}
+
+    while [ $((--i)) -ge 0 ]; do
+      item=${COMPREPLY[$i]}
+      COMPREPLY[$i]=${item#$prefix}
+    done
+  fi
+}
+
 _yo_generators() {
-  local -r IFS=:
+  local -r IFS=$'\n'
 
   for i in $NODE_PATH; do
     ls -d "$i"/generator-*/{,generators/}*/index.js 2>/dev/null
@@ -10,12 +55,12 @@ _yo_generators() {
 }
 
 _yo_get_gen_path() {
-  local -r IFS=:
+  local -r IFS=$'\n'
   local gen subgen
 
   gen=${1%:*}      # if $1='a:b', then $gen='a'
   if [[ $1 == *:* ]]; then
-    subgen=${1#*:} # if $1='a:b', then $gen='b'
+    subgen=${1#*:} # if $1='a:b', then $subgen='b'
   else
     subgen='app'   # set default value
   fi
@@ -39,15 +84,17 @@ _yo_get_gen_opts() {
 }
 
 _yo() {
-  local -r OPTS='-f --force --generators --help --insight \
+  local -r OPTS='--force --generators --help --insight \
                  --no-color --no-insight --version' \
-           EXCL=':=' # don't divide words on these characters
+           args=$(__yo_count_args) \
+           IFS=$'\n ' \
+           EXCL=':='  # don't divide words on these characters
+
   local cur prev
   COMPREPLY=()
 
   _get_comp_words_by_ref -n $EXCL cur prev
-  _count_args $EXCL  # sets $args to # of non-option arguments + 1
-
+  
   if [ $args -eq 1 ]; then
     case "$cur" in
     -*)
@@ -55,12 +102,11 @@ _yo() {
       ;;
     *)
       COMPREPLY=( $(compgen -W  "$( _yo_generators )" -- "$cur") )
-      __ltrim_colon_completions "$cur"
+      __yo_ltrim_colon_completions "$cur"
     esac
 
   elif [ $args -eq 2 ]; then
-    _get_first_arg   # sets $arg to value of first non-option argument
-
+    local -r arg=$(__yo_get_first_arg)
     if [[ $(_yo_get_gen_path "$arg") ]]; then
       COMPREPLY=( $(compgen -W \
         "--help $(_yo_get_gen_opts "$arg")" -- "$cur") )
