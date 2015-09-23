@@ -9,26 +9,64 @@ _yo_generators() {
   done | sed 's/.*generator-//;s|/index.js$||' | sort | uniq | tr '/' ':'
 }
 
-_yo() {
-  local -r HELP='-f --force --generators --help --insight \
-                 --no-color --no-insight --version'
-  local -r GENS=$( _yo_generators )
-  local cur prev
-  _get_comp_words_by_ref -n : cur prev
-  COMPREPLY=()
+_yo_get_gen_path() {
+  local -r IFS=:
+  local gen subgen
 
-  if [ "$prev" != 'yo' ] && [[ $prev != -* ]]; then
-    return 0
+  gen=${1%:*}      # if $1='a:b', then $gen='a'
+  if [[ $1 == *:* ]]; then
+    subgen=${1#*:} # if $1='a:b', then $gen='b'
+  else
+    subgen='app'   # set default value
   fi
 
-  case "$cur" in
-  -*)
-    COMPREPLY=( $(compgen -W "$HELP" -- "$cur") )
-    ;;
-  *)
-    COMPREPLY=( $(compgen -W  "$GENS" -- "$cur") )
-    __ltrim_colon_completions "$cur"
-  esac
+  for i in $NODE_PATH; do
+    if [ -e "$i"/generator-"$gen"/"$subgen"/index.js ]; then
+       echo "$i/generator-$gen/$subgen"
+       return 0
+    elif [ -e "$i"/generator-"$gen"/generators/"$subgen"/index.js ]; then
+       echo "$i/generator-$gen/generators/$subgen"
+       return 0
+    fi
+  done
+}
+
+_yo_get_gen_opts() {
+  local -r index="$(_yo_get_gen_path "$1")/index.js"
+
+  sed -n "s/.*this\.option(.*'\([^']\+\)'.*/\1/p"  "$index" \
+    | sort | uniq | sed 's/^/--/'
+}
+
+_yo() {
+  local -r OPTS='-f --force --generators --help --insight \
+                 --no-color --no-insight --version' \
+           EXCL=':=' # don't divide words on these characters
+  local cur prev
+  COMPREPLY=()
+
+  _get_comp_words_by_ref -n $EXCL cur prev
+  _count_args $EXCL  # sets $args to # of non-option arguments + 1
+
+  if [ $args -eq 1 ]; then
+    case "$cur" in
+    -*)
+      COMPREPLY=( $(compgen -W "$OPTS" -- "$cur") )
+      ;;
+    *)
+      COMPREPLY=( $(compgen -W  "$( _yo_generators )" -- "$cur") )
+      __ltrim_colon_completions "$cur"
+    esac
+
+  elif [ $args -eq 2 ]; then
+    _get_first_arg   # sets $arg to value of first non-option argument
+
+    if [[ $(_yo_get_gen_path "$arg") ]]; then
+      COMPREPLY=( $(compgen -W \
+        "--help $(_yo_get_gen_opts "$arg")" -- "$cur") )
+    fi
+  fi
+
   return 0
 }
 complete -F _yo yo
