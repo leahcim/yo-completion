@@ -65,7 +65,7 @@ __yo_gen_path() {
 # @stdout  List of generator's options (flags)
 __yo_gen_opts() {
   local index="$1/index.js" \
-    regex="s/.*this\.option(.*\(['\"]\)\([^\1]\+\)\1.*/\2/p"
+    regex="s/.*this\.\(option\|hookFor\)(.*\(['\"]\)\([^\2]\+\)\2.*/\3/p"
 
   [ -f "$index" ] && sed -n "$regex" "$index" | sort -u | sed 's/^/--/'
 }
@@ -107,6 +107,7 @@ _yo_generators() {
 # @modifies global array $COMPREPLY
 __yo_compgen() {
   COMPREPLY=( $(compgen -W "$1" -- "$2") )
+  __yo_ltrim_colon_completions "$2"
 }
 
 _yo() {
@@ -118,7 +119,6 @@ _yo() {
   case "$cur" in
   -*) __yo_compgen "$( _yo_opts "$cword" "${words[*]}" )" "$cur" ;;
    *) __yo_compgen "$( _yo_generators )" "$cur"
-      __yo_ltrim_colon_completions "$cur"
   esac
 
   return 0
