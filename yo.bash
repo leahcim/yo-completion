@@ -92,6 +92,10 @@ _yo_generators() {
   done | sed 's/.*generator-//;s|/index.js$||' | sort | uniq | tr '/' ':'
 }
 
+__yo_compgen() {
+  COMPREPLY=( $(compgen -W "$1" -- "$2") )
+}
+
 _yo() {
   local -r IFS=$'\n ' \
            EXCL=':='  # don't divide words on these characters
@@ -102,12 +106,9 @@ _yo() {
   _get_comp_words_by_ref -n $EXCL cur prev cword words
 
   case "$cur" in
-  -*)
-    COMPREPLY=( $(compgen -W "$( _yo_opts "$cword" "${words[*]}" )" -- "$cur") )
-    ;;
-  *)
-    COMPREPLY=( $(compgen -W  "$( _yo_generators )" -- "$cur") )
-    __yo_ltrim_colon_completions "$cur"
+  -*) __yo_compgen "$( _yo_opts "$cword" "${words[*]}" )" "$cur" ;;
+   *) __yo_compgen "$( _yo_generators )" "$cur"
+      __yo_ltrim_colon_completions "$cur"
   esac
 
   return 0
