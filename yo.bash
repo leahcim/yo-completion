@@ -52,10 +52,10 @@ __yo_gen_path() {
 }
 
 __yo_gen_opts() {
-  local index="$1/index.js"
+  local index="$1/index.js" \
+    regex="s/.*this\.option(.*\(['\"]\)\([^\1]\+\)\1.*/\2/p"
 
-  sed -n "s/.*this\.option(.*'\([^']\+\)'.*/\1/p"  "$index" \
-    | sort | uniq | sed 's/^/--/'
+  [ -f "$index" ] && sed -n "$regex" "$index" | sort -u | sed 's/^/--/'
 }
 
 __yo_main_opts() {
@@ -75,11 +75,14 @@ _yo_opts() {
 }
 
 _yo_generators() {
-  local IFS=$'\n' i
+  local IFS=$'\n' i \
+    regex1='s/.*generator-//' \
+    regex2='s|/generators||' \
+    regex2='s|/index.js||'
 
   for i in $( __yo_node_path ); do
-    ls -d "$i"/generator-*/{,generators/}*/index.js 2>/dev/null
-  done | sed 's/.*generator-//;s|/index.js$||' | sort | uniq | tr '/' ':'
+    ls -df "$i"/generator-*/{,generators/}*/index.js 2>/dev/null
+  done | sed "$regex1;$regex2;$regex3" | sort -u | tr '/' ':'
 }
 
 __yo_compgen() {
