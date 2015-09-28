@@ -5,6 +5,10 @@
 # incurred if $NODE_PATH has not been set
 : ${NODE_PATH:=$( npm -g root )}
 
+# @param $OSTYPE global string  System variable
+# @param $NODE_PATH global string  Node.js variable with module locations
+# @param $PWD global string  Current location in file system
+# @stdout  List of Node.js module locations
 __yo_node_path() {
   local IFS p
 
@@ -14,9 +18,13 @@ __yo_node_path() {
   esac
 
   for p in $NODE_PATH; do echo "$p"; done
-  echo "$PWD/node_modules"
+  echo "$PWD/node_modules"  # faster than calling $(npm root)
 }
 
+# Remove word-colon prefix from COMPREPLY items
+# @param $1 string  Current word to complete (cur)
+# @param $COMPREPLY global array  Completions prefixed with '<GENERATOR>:'
+# @modifies global array $COMPREPLY
 __yo_ltrim_colon_completions() {
   local item prefix \
     cur="$1" \
@@ -30,6 +38,8 @@ __yo_ltrim_colon_completions() {
   done
 }
 
+# @param $1 string  (Sub)generator name, in the format 'aa' or 'aa:bb'
+# @stdout  Path to the generator named
 __yo_gen_path() {
   local IFS=$'\n' gen subgen p
 
@@ -51,6 +61,8 @@ __yo_gen_path() {
   done
 }
 
+# @param $1 string  Path to a generator
+# @stdout  List of generator's options (flags)
 __yo_gen_opts() {
   local index="$1/index.js" \
     regex="s/.*this\.option(.*\(['\"]\)\([^\1]\+\)\1.*/\2/p"
@@ -58,12 +70,16 @@ __yo_gen_opts() {
   [ -f "$index" ] && sed -n "$regex" "$index" | sort -u | sed 's/^/--/'
 }
 
+# @stdout  Main command options (flags)
 __yo_main_opts() {
   echo '
     --force --generators --help --insight
     --no-color --no-insight --version'
 }
 
+# @param $1 integer  Index of the current word to complete (cword)
+# @param $2 string  Words typed so far (words)
+# @stdout  Options (flags) for the main command or for a (sub)generator
 _yo_opts() {
   local path i=$1 words=( ${*:2} )
 
@@ -74,6 +90,7 @@ _yo_opts() {
   echo $( __yo_main_opts )
 }
 
+# @stdout  Names of (sub)generators in the format 'aa' or 'aa:bb'
 _yo_generators() {
   local IFS=$'\n' i \
     regex1='s/.*generator-//' \
@@ -85,6 +102,9 @@ _yo_generators() {
   done | sed "$regex1;$regex2;$regex3" | sort -u | tr '/' ':'
 }
 
+# @param $1 string  Completions
+# @param $2 string  Current word to complete (cur)
+# @modifies global array $COMPREPLY
 __yo_compgen() {
   COMPREPLY=( $(compgen -W "$1" -- "$2") )
 }
