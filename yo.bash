@@ -1,4 +1,3 @@
-# vim: ft=sh
 # Command completion for Yeoman
 # by Michael Ichnowski
 
@@ -38,14 +37,6 @@ __yo_ltrim_colon_completions() {
       COMPREPLY[$i]=${item#$prefix}
     done
   fi
-}
-
-_yo_generators() {
-  local -r IFS=$'\n'
-
-  for i in $( __yo_node_path ); do
-    ls -d "$i"/generator-*/{,generators/}*/index.js 2>/dev/null
-  done | sed 's/.*generator-//;s|/index.js$||' | sort | uniq | tr '/' ':'
 }
 
 __yo_gen_path() {
@@ -93,6 +84,14 @@ _yo_opts() {
   echo $( __yo_main_opts )
 }
 
+_yo_generators() {
+  local -r IFS=$'\n'
+
+  for i in $( __yo_node_path ); do
+    ls -d "$i"/generator-*/{,generators/}*/index.js 2>/dev/null
+  done | sed 's/.*generator-//;s|/index.js$||' | sort | uniq | tr '/' ':'
+}
+
 _yo() {
   local -r IFS=$'\n ' \
            EXCL=':='  # don't divide words on these characters
@@ -102,14 +101,14 @@ _yo() {
 
   _get_comp_words_by_ref -n $EXCL cur prev cword words
 
-    case "$cur" in
-    -*)
-      COMPREPLY=( $(compgen -W "$( _yo_opts "$cword" "${words[*]}" )" -- "$cur") )
-      ;;
-    *)
-      COMPREPLY=( $(compgen -W  "$( _yo_generators )" -- "$cur") )
-      __yo_ltrim_colon_completions "$cur"
-    esac
+  case "$cur" in
+  -*)
+    COMPREPLY=( $(compgen -W "$( _yo_opts "$cword" "${words[*]}" )" -- "$cur") )
+    ;;
+  *)
+    COMPREPLY=( $(compgen -W  "$( _yo_generators )" -- "$cur") )
+    __yo_ltrim_colon_completions "$cur"
+  esac
 
   return 0
 }
