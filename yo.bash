@@ -18,51 +18,41 @@ __yo_node_path() {
 }
 
 __yo_ltrim_colon_completions() {
-  # If word-to-complete contains a colon,
-  # and bash-version < 4,
-  # or bash-version >= 4 and COMP_WORDBREAKS contains a colon
-  local -r cur=$1
-  if [[
-      $cur == *:* && (
-        ${BASH_VERSINFO[0]} -lt 4 ||
-        (${BASH_VERSINFO[0]} -ge 4 && "$COMP_WORDBREAKS" == *:*)
-      )
-  ]]; then
-    # Remove word-colon prefix from COMPREPLY items
-    local i=${#COMPREPLY[*]}
-    local -r prefix=${cur%${cur##*:}}
+  local item prefix \
+    cur="$1" \
+    i=${#COMPREPLY[*]}
 
-    while [ $((--i)) -ge 0 ]; do
-      item=${COMPREPLY[$i]}
-      COMPREPLY[$i]=${item#$prefix}
-    done
-  fi
+  prefix=${cur%${cur##*:}}
+
+  while [ $((--i)) -ge 0 ]; do
+    item=${COMPREPLY[$i]}
+    COMPREPLY[$i]=${item#$prefix}
+  done
 }
 
 __yo_gen_path() {
-  local -r IFS=$'\n'
-  local gen subgen
+  local IFS=$'\n' gen subgen p
 
-  gen=${1%:*}      # if $1='a:b', then $gen='a'
+  gen=${1%:*}              # 'aa:bb' -> 'aa', 'aa' -> 'aa'
   if [[ $1 == *:* ]]; then
-    subgen=${1#*:} # if $1='a:b', then $subgen='b'
+    subgen=${1#*:}         # 'aa:bb' -> 'bb'
   else
-    subgen='app'   # set default value
+    subgen='app'           # set default value
   fi
 
-  for i in $( __yo_node_path ); do
-    if [ -e "$i"/generator-"$gen"/"$subgen"/index.js ]; then
-       echo "$i/generator-$gen/$subgen"
-       return 0
-    elif [ -e "$i"/generator-"$gen"/generators/"$subgen"/index.js ]; then
-       echo "$i/generator-$gen/generators/$subgen"
-       return 0
+  for p in $( __yo_node_path ); do
+    if [ -f "$p/generator-$gen/$subgen/index.js" ]; then
+       echo "$p/generator-$gen/$subgen"
+       return
+    elif [ -f "$p/generator-$gen/generators/$subgen/index.js" ]; then
+       echo "$p/generator-$gen/generators/$subgen"
+       return
     fi
   done
 }
 
 __yo_gen_opts() {
-  local -r index="$1/index.js"
+  local index="$1/index.js"
 
   sed -n "s/.*this\.option(.*'\([^']\+\)'.*/\1/p"  "$index" \
     | sort | uniq | sed 's/^/--/'
@@ -85,7 +75,7 @@ _yo_opts() {
 }
 
 _yo_generators() {
-  local -r IFS=$'\n'
+  local IFS=$'\n' i
 
   for i in $( __yo_node_path ); do
     ls -d "$i"/generator-*/{,generators/}*/index.js 2>/dev/null
@@ -97,13 +87,10 @@ __yo_compgen() {
 }
 
 _yo() {
-  local -r IFS=$'\n ' \
-           EXCL=':='  # don't divide words on these characters
+  local cur prev cword words \
+    exclude=':='  # don't divide words on these characters
 
-  local cur prev cword words
-  COMPREPLY=()
-
-  _get_comp_words_by_ref -n $EXCL cur prev cword words
+  _get_comp_words_by_ref -n "$exclude" cur prev cword words
 
   case "$cur" in
   -*) __yo_compgen "$( _yo_opts "$cword" "${words[*]}" )" "$cur" ;;
