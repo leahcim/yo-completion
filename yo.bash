@@ -32,14 +32,14 @@ __yo_ltrim_colon_completions() {
 
   prefix=${cur%${cur##*:}}
 
-  while [ $((--i)) -ge 0 ]; do
+  while [ $(( --i )) -ge 0 ]; do
     item=${COMPREPLY[$i]}
     COMPREPLY[$i]=${item#$prefix}
   done
 }
 
 # @param $1 string  (Sub)generator name, in the format 'aa' or 'aa:bb'
-# @stdout  Path to the generator named
+# @stdout  Path to the (sub)generator named
 __yo_gen_path() {
   local IFS=$'\n' gen subgen p
 
@@ -61,8 +61,8 @@ __yo_gen_path() {
   done
 }
 
-# @param $1 string  Path to a generator
-# @stdout  List of generator's options (flags)
+# @param $1 string  Path to a (sub)generator
+# @stdout  List of (sub)generator's options (flags)
 __yo_gen_opts() {
   local index="$1/index.js" \
     regex="s/.*this\.\(option\|hookFor\)(.*\(['\"]\)\([^\2]\+\)\2.*/\3/p"
@@ -81,21 +81,39 @@ __yo_main_opts() {
 # @param $2 string  Words typed so far (words)
 # @stdout  Options (flags) for the main command or for a (sub)generator
 _yo_opts() {
-  local path i=$1 words=( ${*:2} )
+  local path=$( __yo_first_gen "$1" "${*:2}" )
 
-  while [ $(( --i )) -ge 1 ]; do
-    path="$( __yo_gen_path "${words[$i]}" )"
-    [ -n "$path" ] && echo "$( __yo_gen_opts "$path" )" && return
-  done
+  [ -n "$path" ] && echo "$( __yo_gen_opts "$path" )" && return
   echo $( __yo_main_opts )
 }
 
+# @param $1 integer  Index of the current word to complete (cword)
+# @param $2 string  Words typed so far (words)
+# @stdout  Path to the 1st (sub)generator on the command line, if specified
+# @return  True (0) if (sub)generator found, False (>0) otherwise
+__yo_first_gen() {
+  local path words i=0 IFS=' '
+  words=( ${*:2} )
+
+  while [ $(( ++i )) -lt $1 ]; do
+    path="$( __yo_gen_path "${words[$i]}" )"
+    [ -n "$path" ] && echo "$path" && return 0
+  done
+
+  return 1
+}
+
+# @param $1 integer  Index of the current word to complete (cword)
+# @param $2 string  Words typed so far (words)
 # @stdout  Names of (sub)generators in the format 'aa' or 'aa:bb'
 _yo_generators() {
   local IFS=$'\n' i \
     regex1='s/.*generator-//' \
     regex2='s|/generators||' \
     regex2='s|/index.js||'
+
+  # Only one generator allowed
+  ( __yo_first_gen "$1" "${*:2}" > /dev/null ) && return
 
   for i in $( __yo_node_path ); do
     ls -df "$i"/generator-*/{,generators/}*/index.js 2>/dev/null
@@ -106,7 +124,7 @@ _yo_generators() {
 # @param $2 string  Current word to complete (cur)
 # @modifies global array $COMPREPLY
 __yo_compgen() {
-  COMPREPLY=( $(compgen -W "$1" -- "$2") )
+  COMPREPLY=( $( compgen -W "$1" -- "$2" ) )
   __yo_ltrim_colon_completions "$2"
 }
 
@@ -118,7 +136,7 @@ _yo() {
 
   case "$cur" in
   -*) __yo_compgen "$( _yo_opts "$cword" "${words[*]}" )" "$cur" ;;
-   *) __yo_compgen "$( _yo_generators )" "$cur"
+   *) __yo_compgen "$( _yo_generators "$cword" "${words[*]}" )" "$cur"
   esac
 
   return 0
