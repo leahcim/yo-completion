@@ -67,7 +67,10 @@ __yo_gen_opts() {
   local index="$1/index.js" \
     regex="s/.*this\.\(option\|hookFor\)(.*\(['\"]\)\([^\2]\+\)\2.*/\3/p"
 
-  [ -f "$index" ] && sed -n "$regex" "$index" | sort -u | sed 's/^/--/'
+  if [ -f "$index" ]; then
+    echo 'help'
+    sed -n "$regex" "$index"
+  fi | sort -u | sed 's/^/--/'
 }
 
 # @stdout  Main command options (flags)
