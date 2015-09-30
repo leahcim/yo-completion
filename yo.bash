@@ -42,8 +42,7 @@ __yo_ltrim_colon_completions() {
 # @stdout  Normalised path
 __yo_collapse_path() {
   local basename dirname="${1%[/\\]*}"
-  basename="${1#$dirname}"  # '/a/b' -> '/b', 'C:\a\b' -> '\b'
-
+  basename="${1#${dirname//\\/\\\\}}"  # '/a/b' -> '/b', 'C:\a\b' -> '\b'
   [ -d "$dirname" ] && echo "$(cd "$dirname"; pwd)${basename}"
 }
 
