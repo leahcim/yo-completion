@@ -41,15 +41,19 @@ __yo_ltrim_colon_completions() {
 # @param $1 string  Path containing instances of /../ or /./
 # @stdout  Normalised path
 __yo_collapse_path() {
-  local basename dirname="${1%[/\\]*}"
+  local basename \
+    dirname="${1%[/\\]*}"
+
   basename="${1#${dirname//\\/\\\\}}"  # '/a/b' -> '/b', 'C:\a\b' -> '\b'
+
   [ -d "$dirname" ] && echo "$(cd "$dirname"; pwd)${basename}"
 }
 
 # @param $1 string  (Sub)generator name, in the format 'aa' or 'aa:bb'
 # @stdout  Path to the (sub)generator named
 __yo_gen_path() {
-  local IFS=$'\n' gen subgen p
+  local gen subgen p \
+    IFS=$'\n'
 
   gen=${1%:*}              # 'aa:bb' -> 'aa', 'aa' -> 'aa'
   if [[ $1 == *:* ]]; then
@@ -72,7 +76,8 @@ __yo_gen_path() {
 # @param $1 string  List of newline-delimited paths to *.js files
 # @stdout  List of paths to files required by files given
 __yo_gen_required() {
-  local files file path IFS=$'\n' \
+  local files file path \
+    IFS=$'\n' \
     regex="s/.*require(\s*\(['\"]\)\(\.[^'\"]\+\)\1.*/\2/p"
 
   for path in $1; do
@@ -100,7 +105,8 @@ __yo_gen_required() {
 # @param $1 string  Path to a (sub)generator
 # @stdout  List of (sub)generator's options (flags)
 __yo_gen_opts() {
-  local paths required IFS=$'\n' \
+  local paths required \
+    IFS=$'\n' \
     index="$1/index.js" \
     regex="s/.*\.\(option\|hookFor\)(\s*\(['\"]\)\([^'\"]\+\)\2.*/\3/p"
 
@@ -154,19 +160,40 @@ __yo_first_gen() {
 
 # @param $1 integer  Index of the current word to complete (cword)
 # @param $2 string  Words typed so far (words)
-# @stdout  Names of (sub)generators in the format 'aa' or 'aa:bb'
-_yo_generators() {
-  local IFS=$'\n' i \
+# @stdout  Names of sub-generators in the format 'aa:bb'
+_yo_subgens() {
+  local i \
+    IFS=$'\n' \
+    cword=$1 \
+    words="${*:2}" \
     regex1='s/.*generator-//' \
     regex2='s|/generators||' \
     regex2='s|/index.js||'
 
-  # Only one generator allowed
-  ( __yo_first_gen "$1" "${*:2}" > /dev/null ) && return
+  # only one generator allowed
+  ( __yo_first_gen "$cword" "$words" > /dev/null ) && return
 
   for i in $( __yo_node_path ); do
     ls -df "$i"/generator-*/{,generators/}*/index.js 2> /dev/null
   done | sed "$regex1;$regex2;$regex3" | sort -u | tr '/' ':'
+}
+
+# @param $1 integer  Index of the current word to complete (cword)
+# @param $2 string  Words typed so far (words)
+# @stdout  Names of generators
+_yo_gens() {
+  local i \
+    IFS=$'\n' \
+    cword=$1 \
+    words="${*:2}" \
+    regex='s/.*generator-\([^/\\]\+\).*/\1/p'
+
+  # only one generator allowed
+  ( __yo_first_gen "$cword" "$words" > /dev/null ) && return
+
+  for i in $( __yo_node_path ); do
+    ls -df "$i"/generator-*/{,generators/}app/index.js 2> /dev/null
+  done | sed -n "$regex" | sort -u
 }
 
 # @param $1 string  Completions
@@ -174,22 +201,37 @@ _yo_generators() {
 # @modifies global array $COMPREPLY
 __yo_compgen() {
   COMPREPLY=( $( compgen -W "$1" -- "$2" ) )
-  __yo_ltrim_colon_completions "$2"
 }
 
 _yo() {
-  local cur prev cword words \
+  local cur prev cword words i=0 \
     IFS=$' \t\n' \
     exclude=':='  # don't divide words on these characters
 
   _get_comp_words_by_ref -n "$exclude" cur prev cword words
 
   case "$cur" in
-  -*) __yo_compgen "$( _yo_opts "$cword" "${words[*]}" )" "$cur" ;;
-   *) __yo_compgen "$( _yo_generators "$cword" "${words[*]}" )" "$cur"
+    -*) __yo_compgen "$( _yo_opts    "$cword" "${words[*]}" )" "$cur" ;;
+   *:*) __yo_compgen "$( _yo_subgens "$cword" "${words[*]}" )" "$cur" ;;
+     *) __yo_compgen "$( _yo_gens    "$cword" "${words[*]}" )" "$cur" ;;
   esac
+
+  while [ ${#COMPREPLY[*]} -eq 1 ] && [ $(( ++i )) -le 2 ]; do
+    case "$COMPREPLY" in
+      [^-]*:*)
+        COMPREPLY=( "$COMPREPLY " )  # Accept completion, move on
+        break ;;
+      $cur)
+         # If option alrady complete, move on
+        [[ $cur == -* ]] && COMPREPLY=( "$COMPREPLY " ) && break
+
+        __yo_compgen "$( _yo_subgens "$cword" "${words[*]}" )" "$cur" ;;
+    esac
+  done
+
+  __yo_ltrim_colon_completions "$cur"
 
   return 0
 }
 
-complete -F _yo yo
+complete -o nospace -o default -F _yo yo
