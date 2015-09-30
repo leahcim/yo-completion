@@ -38,6 +38,15 @@ __yo_ltrim_colon_completions() {
   done
 }
 
+# @param $1 string  Path containing instances of /../ or /./
+# @stdout  Normalised path
+__yo_collapse_path() {
+  local basename dirname="${1%[/\\]*}"
+  basename="${1#$dirname}"  # '/a/b' -> '/b', 'C:\a\b' -> '\b'
+
+  [ -d "$dirname" ] && echo "$(cd "$dirname"; pwd)${basename}"
+}
+
 # @param $1 string  (Sub)generator name, in the format 'aa' or 'aa:bb'
 # @stdout  Path to the (sub)generator named
 __yo_gen_path() {
@@ -61,15 +70,53 @@ __yo_gen_path() {
   done
 }
 
+# @param $1 string  List of newline-delimited paths to *.js files
+# @stdout  List of paths to files required by files given
+__yo_gen_required() {
+  local files file path IFS=$'\n' \
+    regex="s/.*require(\s*\(['\"]\)\(\.[^'\"]\+\)\1.*/\2/p"
+
+  for path in $1; do
+    [ -f "$path" ] || continue
+
+    # don't search whole files - prioritise speed
+    files="$( head -n15 "$path" | sed -n "$regex" )"
+
+    path="${path%${path##*[/\\]}}"  # '/a/b' -> '/a/', 'C:\a\b' -> 'C:\a\'
+
+    for file in $files; do
+
+      file="${path}${file}"
+      [ -f "$file" ] &&
+        echo "$( __yo_collapse_path "$file" )" && continue
+
+      file+='.js'
+      [ -f "$file" ] &&
+        echo "$( __yo_collapse_path "$file" )"
+
+    done
+  done | sort -u
+}
+
 # @param $1 string  Path to a (sub)generator
 # @stdout  List of (sub)generator's options (flags)
 __yo_gen_opts() {
-  local index="$1/index.js" \
-    regex="s/.*this\.\(option\|hookFor\)(.*\(['\"]\)\([^\2]\+\)\2.*/\3/p"
+  local paths required IFS=$'\n' \
+    index="$1/index.js" \
+    regex="s/.*\.\(option\|hookFor\)(\s*\(['\"]\)\([^'\"]\+\)\2.*/\3/p"
 
   if [ -f "$index" ]; then
     echo 'help'
-    sed -n "$regex" "$index"
+
+    paths=$({
+      echo "$index"
+
+      required="$( __yo_gen_required "$index" )"$'\n'
+      required+="$( __yo_gen_required "$required" )"
+      echo "$required"
+    } | sort -u)
+
+    sed -n "$regex" $paths 2> /dev/null
   fi | sort -u | sed 's/^/--/'
 }
 
@@ -119,7 +166,7 @@ _yo_generators() {
   ( __yo_first_gen "$1" "${*:2}" > /dev/null ) && return
 
   for i in $( __yo_node_path ); do
-    ls -df "$i"/generator-*/{,generators/}*/index.js 2>/dev/null
+    ls -df "$i"/generator-*/{,generators/}*/index.js 2> /dev/null
   done | sed "$regex1;$regex2;$regex3" | sort -u | tr '/' ':'
 }
 
@@ -133,6 +180,7 @@ __yo_compgen() {
 
 _yo() {
   local cur prev cword words \
+    IFS=$' \t\n' \
     exclude=':='  # don't divide words on these characters
 
   _get_comp_words_by_ref -n "$exclude" cur prev cword words
