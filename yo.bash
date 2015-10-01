@@ -21,10 +21,43 @@ __yo_node_path() {
   echo "$PWD/node_modules"  # faster than calling $(npm root)
 }
 
+# @param $1 string  Characters which should not count as word breaks
+# @param $COMP_WORDBREAKS global string  Characters used as word breaks
+# @param $COMP_CWORD  Index of the current (partial) word
+# @param $COMP_WORDS global array  (Partial) words entered so far
+# @modifies $cur string  Current word to complete
+# @modifies $cword integer  Index of the current word
+# @modifies $words array  Words typed so far
+__yo_get_comp_words() {
+  local i j item exclude \
+    appending='true'
+
+  # Only keep characters actually listed as word breaks
+  exclude=${1//[^$COMP_WORDBREAKS]}
+
+  words=( $COMP_WORDS )  # start off with the first word (the command)
+  for (( i=1, j=1; i < ${#COMP_WORDS[*]}; i++ )); do
+
+    item="${COMP_WORDS[i]}"
+    case $item in
+      [$exclude])
+        words[j]+=$item
+        appending='true' ;;
+      *)
+        [ "$appending" == 'false' ] && (( j++ ))
+        words[j]+=$item
+        appending='false'
+    esac
+
+    [ $i -eq $COMP_CWORD ] && cword=$j
+  done
+  cur=${words[$cword]}
+}
+
 # Remove word-colon prefix from COMPREPLY items
 # @param $1 string  Current word to complete (cur)
 # @param $COMPREPLY global array  Completions prefixed with '<GENERATOR>:'
-# @modifies global array $COMPREPLY
+# @modifies $COMPREPLY global array
 __yo_ltrim_colon_completions() {
   local item prefix \
     cur="$1" \
@@ -198,17 +231,17 @@ _yo_gens() {
 
 # @param $1 string  Completions
 # @param $2 string  Current word to complete (cur)
-# @modifies global array $COMPREPLY
+# @modifies $COMPREPLY global array
 __yo_compgen() {
   COMPREPLY=( $( compgen -W "$1" -- "$2" ) )
 }
 
 _yo() {
-  local cur prev cword words i=0 \
+  local cur cword words i=0 \
     IFS=$' \t\n' \
     exclude=':='  # don't divide words on these characters
 
-  _get_comp_words_by_ref -n "$exclude" cur prev cword words
+  __yo_get_comp_words "$exclude"
 
   case "$cur" in
     -*) __yo_compgen "$( _yo_opts    "$cword" "${words[*]}" )" "$cur" ;;
