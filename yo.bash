@@ -37,44 +37,20 @@ __yo_up_arr() {
   [ -n "${!1+set}" ] && eval "$1"'=( "${@:2}" )'
 }
 
-# @param $1 string  Characters which should not count as word breaks
-# @param $COMP_WORDBREAKS global string  Characters used as word breaks
-# @param $COMP_CWORD  Index of the current (partial) word
-# @param $COMP_WORDS global array  (Partial) words entered so far
-# @modifies $cur string  Current word to complete
+# @param $COMP_LINE global string  Words entered so far
+# @param $COMP_POINT global integer  Cursor position within $COMP_LINE
+# @modifies $cur string  Current word to complete, up to cursor
 # @modifies $cword integer  Index of the current word
-# @modifies $words array  Words typed so far
+# @modifies $words array  Words typed up to cursor
 __yo_get_comp_words() {
-  local i j item exclude ahead _cur _cword _words \
-    appending='true'
+  local _cur _cword _words \
+    prev_char=${COMP_LINE:$(( COMP_POINT -1 )):1}
 
-  # Only keep characters actually listed as word breaks
-  exclude=${1//[^$COMP_WORDBREAKS]}
+  eval "_words=( ${COMP_LINE:0:$COMP_POINT} )"
+  [ "$prev_char" == ' ' ] && _words+=( '' )
 
-  _words=( $COMP_WORDS )  # start off with the first word (the command)
-  for (( i=1, j=1; i < ${#COMP_WORDS[@]}; i++ )); do
-
-    item="${COMP_WORDS[i]}"
-    case $item in
-      [$exclude])
-        _words[j]+=$item
-        appending='true' ;;
-      *)
-        [ "$appending" == 'false' ] && (( j++ ))
-        _words[j]+=$item
-        appending='false'
-    esac
-
-    [ $i -eq $COMP_CWORD ] && _cword=$j
-  done
-
-  # find part of current word ahead of the cursor
-  ahead=${COMP_LINE:$COMP_POINT}
-  ahead=${ahead# }     # for when cursor is just before current word
-  ahead=${ahead%% *}
-
-  # trim part of current word ahead of the cursor
-  _cur=${_words[$_cword]%$ahead}
+  _cword=$(( ${#_words[@]} - 1 ))
+  _cur=${_words[$_cword]}
 
   __yo_up_var cur "$_cur"
   __yo_up_var cword $_cword
@@ -207,7 +183,7 @@ _yo_opts() {
 # @stdout  Path to the 1st (sub)generator on the command line, if specified
 # @return  True (0) if (sub)generator found, False (>0) otherwise
 __yo_first_gen() {
-  local path words i=0 IFS=' '
+  local path words i=0
   words=( "${@:2}" )
 
   while [ $(( ++i )) -lt $1 ]; do
