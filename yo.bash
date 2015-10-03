@@ -45,14 +45,14 @@ __yo_up_arr() {
 # @modifies $cword integer  Index of the current word
 # @modifies $words array  Words typed so far
 __yo_get_comp_words() {
-  local i j item exclude _cur _cword _words \
+  local i j item exclude ahead _cur _cword _words \
     appending='true'
 
   # Only keep characters actually listed as word breaks
   exclude=${1//[^$COMP_WORDBREAKS]}
 
   _words=( $COMP_WORDS )  # start off with the first word (the command)
-  for (( i=1, j=1; i < ${#COMP_WORDS[*]}; i++ )); do
+  for (( i=1, j=1; i < ${#COMP_WORDS[@]}; i++ )); do
 
     item="${COMP_WORDS[i]}"
     case $item in
@@ -68,7 +68,13 @@ __yo_get_comp_words() {
     [ $i -eq $COMP_CWORD ] && _cword=$j
   done
 
-  _cur=${_words[$_cword]}
+  # find part of current word ahead of the cursor
+  ahead=${COMP_LINE:$COMP_POINT}
+  ahead=${ahead# }     # for when cursor is just before current word
+  ahead=${ahead%% *}
+
+  # trim part of current word ahead of the cursor
+  _cur=${_words[$_cword]%$ahead}
 
   __yo_up_var cur "$_cur"
   __yo_up_var cword $_cword
@@ -82,7 +88,7 @@ __yo_get_comp_words() {
 __yo_ltrim_colon_completions() {
   local item prefix \
     cur="$1" \
-    i=${#COMPREPLY[*]}
+    i=${#COMPREPLY[@]}
 
   prefix=${cur%${cur##*:}}
 
@@ -187,22 +193,22 @@ __yo_main_opts() {
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
-# @param $2 string  Words typed so far (words)
+# @param ${@:2} array  Words typed so far (words)
 # @stdout  Options (flags) for the main command or for a (sub)generator
 _yo_opts() {
-  local path=$( __yo_first_gen "$1" "${*:2}" )
+  local path=$( __yo_first_gen "$1" "${@:2}" )
 
   [ -n "$path" ] && echo "$( __yo_gen_opts "$path" )" && return
   echo $( __yo_main_opts )
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
-# @param $2 string  Words typed so far (words)
+# @param ${@:2} array  Words typed so far (words)
 # @stdout  Path to the 1st (sub)generator on the command line, if specified
 # @return  True (0) if (sub)generator found, False (>0) otherwise
 __yo_first_gen() {
   local path words i=0 IFS=' '
-  words=( ${*:2} )
+  words=( "${@:2}" )
 
   while [ $(( ++i )) -lt $1 ]; do
     path="$( __yo_gen_path "${words[$i]}" )"
@@ -213,19 +219,19 @@ __yo_first_gen() {
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
-# @param $2 string  Words typed so far (words)
+# @param ${@:2} array  Words typed so far (words)
 # @stdout  Names of sub-generators in the format 'aa:bb'
 _yo_subgens() {
   local i \
     IFS=$'\n' \
     cword=$1 \
-    words="${*:2}" \
+    words=( "${@:2}" ) \
     regex1='s/.*generator-//' \
     regex2='s|/generators||' \
     regex2='s|/index.js||'
 
   # only one generator allowed
-  ( __yo_first_gen "$cword" "$words" > /dev/null ) && return
+  ( __yo_first_gen "$cword" "${words[@]}" > /dev/null ) && return
 
   for i in $( __yo_node_path ); do
     ls -df "$i"/generator-*/{,generators/}*/index.js 2> /dev/null
@@ -233,17 +239,17 @@ _yo_subgens() {
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
-# @param $2 string  Words typed so far (words)
+# @param ${@:2} array  Words typed so far (words)
 # @stdout  Names of generators
 _yo_gens() {
   local i \
     IFS=$'\n' \
     cword=$1 \
-    words="${*:2}" \
+    words=( "${@:2}" ) \
     regex='s/.*generator-\([^/\\]\+\).*/\1/p'
 
   # only one generator allowed
-  ( __yo_first_gen "$cword" "$words" > /dev/null ) && return
+  ( __yo_first_gen "$cword" "${words[@]}" > /dev/null ) && return
 
   for i in $( __yo_node_path ); do
     ls -df "$i"/generator-*/{,generators/}app/index.js 2> /dev/null
@@ -265,9 +271,9 @@ _yo() {
   __yo_get_comp_words "$exclude"
 
   case "$cur" in
-    -*) __yo_compgen "$( _yo_opts    "$cword" "${words[*]}" )" "$cur" ;;
-   *:*) __yo_compgen "$( _yo_subgens "$cword" "${words[*]}" )" "$cur" ;;
-     *) __yo_compgen "$( _yo_gens    "$cword" "${words[*]}" )" "$cur" ;;
+    -*) __yo_compgen "$( _yo_opts    "$cword" "${words[@]}" )" "$cur" ;;
+   *:*) __yo_compgen "$( _yo_subgens "$cword" "${words[@]}" )" "$cur" ;;
+     *) __yo_compgen "$( _yo_gens    "$cword" "${words[@]}" )" "$cur" ;;
   esac
 
   while [ ${#COMPREPLY[*]} -eq 1 ] && [ $(( ++i )) -le 2 ]; do
@@ -279,7 +285,7 @@ _yo() {
          # If option alrady complete, move on
         [[ $cur == -* ]] && COMPREPLY=( "$COMPREPLY " ) && break
 
-        __yo_compgen "$( _yo_subgens "$cword" "${words[*]}" )" "$cur" ;;
+        __yo_compgen "$( _yo_subgens "$cword" "${words[@]}" )" "$cur" ;;
     esac
   done
 
