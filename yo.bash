@@ -67,6 +67,7 @@ __yo_ltrim_colon_completions() {
     i=${#COMPREPLY[@]}
 
   prefix=${cur%${cur##*:}}
+  [ -z "$prefix" ] && return
 
   while [ $(( --i )) -ge 0 ]; do
     item=${COMPREPLY[$i]}
@@ -172,10 +173,19 @@ __yo_main_opts() {
 # @param ${@:2} array  Words typed so far (words)
 # @stdout  Options (flags) for the main command or for a (sub)generator
 _yo_opts() {
-  local path=$( __yo_first_gen "$1" "${@:2}" )
+  local path opts \
+    cword=$1 \
+    words=( "${@:2}" )
 
-  [ -n "$path" ] && echo "$( __yo_gen_opts "$path" )" && return
-  echo $( __yo_main_opts )
+  path=$( __yo_first_gen "$cword" "${words[@]}" )
+
+  if [ -n "$path" ]; then
+    opts="$( __yo_gen_opts "$path" )"
+  else
+    opts=$( __yo_main_opts )
+  fi
+  __yo_compgen "$opts" "${words[$cword]}"
+  __yo_check_completed "${words[$cword]}" && __yo_finish_word
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
@@ -198,7 +208,7 @@ __yo_first_gen() {
 # @param ${@:2} array  Words typed so far (words)
 # @stdout  Names of sub-generators in the format 'aa:bb'
 _yo_subgens() {
-  local i \
+  local p subgens \
     IFS=$'\n' \
     cword=$1 \
     words=( "${@:2}" ) \
@@ -209,16 +219,20 @@ _yo_subgens() {
   # only one generator allowed
   ( __yo_first_gen "$cword" "${words[@]}" > /dev/null ) && return
 
-  for i in $( __yo_node_path ); do
-    ls -df "$i"/generator-*/{,generators/}*/index.js 2> /dev/null
-  done | sed "$regex1;$regex2;$regex3" | sort -u | tr '/' ':'
+  subgens=$(
+    for p in $( __yo_node_path ); do
+      ls -df "$p"/generator-*/{,generators/}*/index.js 2> /dev/null
+    done | sed "$regex1;$regex2;$regex3" | sort -u | tr '/' ':'
+  )
+  __yo_compgen "$subgens" "${words[$cword]}"
+  __yo_check_completed && __yo_finish_word
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
 # @param ${@:2} array  Words typed so far (words)
 # @stdout  Names of generators
 _yo_gens() {
-  local i \
+  local p gens \
     IFS=$'\n' \
     cword=$1 \
     words=( "${@:2}" ) \
@@ -227,9 +241,31 @@ _yo_gens() {
   # only one generator allowed
   ( __yo_first_gen "$cword" "${words[@]}" > /dev/null ) && return
 
-  for i in $( __yo_node_path ); do
-    ls -df "$i"/generator-*/{,generators/}app/index.js 2> /dev/null
-  done | sed -n "$regex" | sort -u
+  gens=$(
+    for p in $( __yo_node_path ); do
+      ls -df "$p"/generator-*/{,generators/}app/index.js 2> /dev/null
+    done | sed -n "$regex" | sort -u
+  )
+  __yo_compgen "$gens" "${words[$cword]}"
+  if __yo_check_completed "${words[$cword]}"; then
+   _yo_subgens "$cword" "${words[@]}"
+  fi
+}
+
+# @param $1 string  Current word to complete (cur) or empty string
+# @param $COMPREPLY global array  Completions
+# @return  True (0) if unique completion matches current word, if given,
+#          False(>0), otherwise
+__yo_check_completed() {
+  if [[ ${#COMPREPLY[@]} -eq 1 && ( -z $1 || $1 == $COMPREPLY ) ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# @modifies $COMPREPLY global array
+__yo_finish_word() {
+  COMPREPLY=( "$COMPREPLY " )  # complete and move on
 }
 
 # @param $1 string  Completions
@@ -240,30 +276,16 @@ __yo_compgen() {
 }
 
 _yo() {
-  local cur= cword= words= i=0 \
-    IFS=$' \t\n' \
-    exclude=':='  # don't divide words on these characters
+  local cur= cword= words= \
+    IFS=$' \t\n'
 
-  __yo_get_comp_words "$exclude"
+  __yo_get_comp_words
 
   case "$cur" in
-    -*) __yo_compgen "$( _yo_opts    "$cword" "${words[@]}" )" "$cur" ;;
-   *:*) __yo_compgen "$( _yo_subgens "$cword" "${words[@]}" )" "$cur" ;;
-     *) __yo_compgen "$( _yo_gens    "$cword" "${words[@]}" )" "$cur" ;;
+    -*) _yo_opts    "$cword" "${words[@]}" ;;
+   *:*) _yo_subgens "$cword" "${words[@]}" ;;
+     *) _yo_gens    "$cword" "${words[@]}"
   esac
-
-  while [ ${#COMPREPLY[*]} -eq 1 ] && [ $(( ++i )) -le 2 ]; do
-    case "$COMPREPLY" in
-      [^-]*:*)
-        COMPREPLY=( "$COMPREPLY " )  # Accept completion, move on
-        break ;;
-      $cur)
-         # If option alrady complete, move on
-        [[ $cur == -* ]] && COMPREPLY=( "$COMPREPLY " ) && break
-
-        __yo_compgen "$( _yo_subgens "$cword" "${words[@]}" )" "$cur" ;;
-    esac
-  done
 
   __yo_ltrim_colon_completions "$cur"
 
