@@ -21,6 +21,22 @@ __yo_node_path() {
   echo "$PWD/node_modules"  # faster than calling $(npm root)
 }
 
+# Assign value to variable referenced by $1, but only if it's been set
+# @param $1 string  Name of a variable to assign to
+# @param $2 primitive  String/integer value to assign to the variable
+# @modifies ${!1}  Variable referenced indirectly by $1, if set
+__yo_up_var() {
+  [ -n "${!1+set}" ] && eval "$1='$2'"
+}
+
+# Assign array to variable referenced by $1, but only if it's been set
+# @param $1 string  Name of a variable to assign to
+# @param $2 array  Array values to assign to the variable
+# @modifies ${!1}  Variable referenced indirectly by $1, if set
+__yo_up_arr() {
+  [ -n "${!1+set}" ] && eval "$1"'=( "${@:2}" )'
+}
+
 # @param $1 string  Characters which should not count as word breaks
 # @param $COMP_WORDBREAKS global string  Characters used as word breaks
 # @param $COMP_CWORD  Index of the current (partial) word
@@ -29,29 +45,34 @@ __yo_node_path() {
 # @modifies $cword integer  Index of the current word
 # @modifies $words array  Words typed so far
 __yo_get_comp_words() {
-  local i j item exclude \
+  local i j item exclude _cur _cword _words \
     appending='true'
 
   # Only keep characters actually listed as word breaks
   exclude=${1//[^$COMP_WORDBREAKS]}
 
-  words=( $COMP_WORDS )  # start off with the first word (the command)
+  _words=( $COMP_WORDS )  # start off with the first word (the command)
   for (( i=1, j=1; i < ${#COMP_WORDS[*]}; i++ )); do
 
     item="${COMP_WORDS[i]}"
     case $item in
       [$exclude])
-        words[j]+=$item
+        _words[j]+=$item
         appending='true' ;;
       *)
         [ "$appending" == 'false' ] && (( j++ ))
-        words[j]+=$item
+        _words[j]+=$item
         appending='false'
     esac
 
-    [ $i -eq $COMP_CWORD ] && cword=$j
+    [ $i -eq $COMP_CWORD ] && _cword=$j
   done
-  cur=${words[$cword]}
+
+  _cur=${_words[$_cword]}
+
+  __yo_up_var cur "$_cur"
+  __yo_up_var cword $_cword
+  __yo_up_arr words "${_words[@]}"
 }
 
 # Remove word-colon prefix from COMPREPLY items
@@ -237,7 +258,7 @@ __yo_compgen() {
 }
 
 _yo() {
-  local cur cword words i=0 \
+  local cur= cword= words= i=0 \
     IFS=$' \t\n' \
     exclude=':='  # don't divide words on these characters
 
