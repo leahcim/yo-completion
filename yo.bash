@@ -121,9 +121,9 @@ __yo_collapse_path() {
 }
 
 # @param $1 string  (Sub)generator name, in the format 'aa' or 'aa:bb'
-# @stdout  Path to the (sub)generator named
-__yo_gen_path() {
-  local gen subgen p \
+# @stdout  Path to the named (sub)generator's index.js file
+__yo_gen_index() {
+  local gen subgen p index \
     IFS=$'\n'
 
   gen=${1%:*}              # 'aa:bb' -> 'aa', 'aa' -> 'aa'
@@ -134,13 +134,9 @@ __yo_gen_path() {
   fi
 
   for p in $( __yo_node_path ); do
-    if [ -f "$p/generator-$gen/$subgen/index.js" ]; then
-       echo "$p/generator-$gen/$subgen"
-       return
-    elif [ -f "$p/generator-$gen/generators/$subgen/index.js" ]; then
-       echo "$p/generator-$gen/generators/$subgen"
-       return
-    fi
+    for index in "$p/generator-$gen/"{,generators/}"$subgen/index.js"; do
+      [ -f "$index" ] && echo "$index" && return
+    done
   done
 }
 
@@ -177,7 +173,7 @@ __yo_gen_required() {
 # @stdout  List of (sub)generator's options (flags)
 __yo_gen_opts() {
   local required \
-    index="$1/index.js" \
+    index=$1 \
     regex="\.(option|hookFor)\(\s*(['\"])([^'\"]+)\2" output='--\3'
 
   if [ -f "$index" ]; then
@@ -228,7 +224,7 @@ __yo_first_gen() {
     words=( "${@:2}" )
 
   while [ $(( ++i )) -lt $1 ]; do
-    path="$( __yo_gen_path "${words[$i]}" )"
+    path="$( __yo_gen_index "${words[$i]}" )"
     [ -n "$path" ] && echo "$path" && return 0
   done
 
