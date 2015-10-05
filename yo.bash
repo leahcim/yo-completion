@@ -21,6 +21,40 @@ __yo_node_path() {
   echo "$PWD/node_modules"  # faster than calling $(npm root)
 }
 
+# @param $1 integer  Max # of lines to read from each file (default: 1000)
+# @stdin  New-line separated list of file paths to read from
+# @stdout  Concatenated contents of all files specified that exist
+__yo_cat() {
+  local file_name line i
+
+  while read -r file_name; do
+    [ -f "$file_name" ] || continue
+    [ -n "$1" ] && i=$1 || i=1000  # max. no. of lines to read
+    while read -r line && (( i-- > 0 )); do
+      echo "$line"
+    done < "$file_name"
+  done
+}
+
+# @param $1 string  Regular expresion to match
+# @param $2 string  Replacement pattern referencing matched groups: \0-\9
+# @param $BASH_REMATCH global array  Matched subexpressions (groups)
+# @stdin  Lines of input to match and modify
+# @stdout  Lines matching regex ($1) modified according to $2
+__yo_sed() {
+  local line regex=$1 output=$2
+
+  while [[ $output =~ (.*)\\([0-9])(.*) ]]; do
+    output="${BASH_REMATCH[1]}"
+    output+="\${BASH_REMATCH[${BASH_REMATCH[2]}]}"
+    output+="${BASH_REMATCH[3]}"
+  done
+
+  while read -r line; do
+    [[ $line =~ $regex ]] && eval "echo $output"
+  done
+}
+
 # Assign value to variable referenced by $1, but only if it's been set
 # @param $1 string  Name of a variable to assign to
 # @param $2 primitive  String/integer value to assign to the variable
@@ -115,13 +149,13 @@ __yo_gen_path() {
 __yo_gen_required() {
   local files file path \
     IFS=$'\n' \
-    regex="s/.*require(\s*\(['\"]\)\(\.[^'\"]\+\)\1.*/\2/p"
+    regex="require\(\s*(['\"])(\.[^'\"]+)\1" output='\2'
 
   for path in $1; do
     [ -f "$path" ] || continue
 
     # don't search whole files - prioritise speed
-    files="$( head -n15 "$path" | sed -n "$regex" )"
+    files=$(echo "$path" | __yo_cat 15 | __yo_sed "$regex" "$output")
 
     path="${path%${path##*[/\\]}}"  # '/a/b' -> '/a/', 'C:\a\b' -> 'C:\a\'
 
@@ -142,24 +176,21 @@ __yo_gen_required() {
 # @param $1 string  Path to a (sub)generator
 # @stdout  List of (sub)generator's options (flags)
 __yo_gen_opts() {
-  local paths required \
-    IFS=$'\n' \
+  local required \
     index="$1/index.js" \
-    regex="s/.*\.\(option\|hookFor\)(\s*\(['\"]\)\([^'\"]\+\)\2.*/\3/p"
+    regex="\.(option|hookFor)\(\s*(['\"])([^'\"]+)\2" output='--\3'
 
   if [ -f "$index" ]; then
-    echo 'help'
-
-    paths=$({
+    echo '--help'
+    {
       echo "$index"
 
       required="$( __yo_gen_required "$index" )"$'\n'
       required+="$( __yo_gen_required "$required" )"
       echo "$required"
-    } | sort -u)
 
-    sed -n "$regex" $paths 2> /dev/null
-  fi | sort -u | sed 's/^/--/'
+    } | sort -u | __yo_cat | __yo_sed "$regex" "$output"
+  fi | sort -u
 }
 
 # @stdout  Main command options (flags)
@@ -193,8 +224,8 @@ _yo_opts() {
 # @stdout  Path to the 1st (sub)generator on the command line, if specified
 # @return  True (0) if (sub)generator found, False (>0) otherwise
 __yo_first_gen() {
-  local path words i=0
-  words=( "${@:2}" )
+  local path i=0 \
+    words=( "${@:2}" )
 
   while [ $(( ++i )) -lt $1 ]; do
     path="$( __yo_gen_path "${words[$i]}" )"
@@ -212,9 +243,9 @@ _yo_subgens() {
     IFS=$'\n' \
     cword=$1 \
     words=( "${@:2}" ) \
-    regex1='s/.*generator-//' \
-    regex2='s|/generators||' \
-    regex2='s|/index.js||'
+    regex='generator-([^/\\]+)[/\\]' \
+    regex+='(generators[/\\]|)' \
+    regex+='([^/\\]+)[/\\]index\.js' output='\1:\3'
 
   # only one generator allowed
   ( __yo_first_gen "$cword" "${words[@]}" > /dev/null ) && return
@@ -222,7 +253,7 @@ _yo_subgens() {
   subgens=$(
     for p in $( __yo_node_path ); do
       ls -df "$p"/generator-*/{,generators/}*/index.js 2> /dev/null
-    done | sed "$regex1;$regex2;$regex3" | sort -u | tr '/' ':'
+    done | __yo_sed "$regex" "$output" | sort -u
   )
   __yo_compgen "$subgens" "${words[$cword]}"
   __yo_check_completed && __yo_finish_word
@@ -236,7 +267,7 @@ _yo_gens() {
     IFS=$'\n' \
     cword=$1 \
     words=( "${@:2}" ) \
-    regex='s/.*generator-\([^/\\]\+\).*/\1/p'
+    regex='generator-([^/\\]+)' output='\1'
 
   # only one generator allowed
   ( __yo_first_gen "$cword" "${words[@]}" > /dev/null ) && return
@@ -244,7 +275,7 @@ _yo_gens() {
   gens=$(
     for p in $( __yo_node_path ); do
       ls -df "$p"/generator-*/{,generators/}app/index.js 2> /dev/null
-    done | sed -n "$regex" | sort -u
+    done | __yo_sed "$regex" "$output" | sort -u
   )
   __yo_compgen "$gens" "${words[$cword]}"
   if __yo_check_completed "${words[$cword]}"; then
