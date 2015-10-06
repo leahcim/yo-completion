@@ -36,14 +36,30 @@ __yo_cat() {
   done
 }
 
+# Options:
+#   -d DELIMITER  Character to be used as the line delimiter (default: \n)
+#   -n            Do not print non-matching lines (default: False)
+#   --            End of options
 # @param $1 string  Regular expresion to match
 # @param $2 string  Replacement pattern referencing matched groups: \0-\9
 # @param $BASH_REMATCH global array  Matched subexpressions (groups)
 # @stdin  Lines of input to match and modify
 # @stdout  Lines matching regex ($1) modified according to $2
 __yo_sed() {
-  local q line regex=$1 output=$2
+  local q line regex output \
+    delim=$'\n' \
+    print='yes'
 
+  while [[ $1 == -? ]]; do
+    case $1 in
+      -d) delim=$2; shift 2 ;;
+      -n) print='no'; shift ;;
+      --) shift; break ;;
+       *) echo "__yo_sed: Unknown option '$1'" >&2; exit 1
+    esac
+  done
+
+  regex=$1 output=$2
   q="'" output=${output//$q/$q\\$q$q}
 
   while [[ $output =~ (.*)\\([0-9])(.*) ]]; do
@@ -54,8 +70,13 @@ __yo_sed() {
 
   output="'$output'"
 
-  while read -r line; do
-    [[ $line =~ $regex ]] && eval "echo $output"
+  # if no delimiter at EOF, read returns error, but $line is still set
+  while read -d "$delim" -r line || [ -n "$line" ]; do
+    if [[ $line =~ $regex ]]; then
+      eval "echo $output"
+    elif [ "$print" == 'yes' ]; then
+      echo "$line"
+    fi
   done
 }
 
@@ -155,7 +176,7 @@ __yo_gen_required() {
     [ -f "$path" ] || continue
 
     # don't search whole files - prioritise speed
-    files=$(echo "$path" | __yo_cat 15 | __yo_sed "$regex" "$output")
+    files=$(echo "$path" | __yo_cat 15 | __yo_sed -n "$regex" "$output")
 
     path="${path%${path##*[/\\]}}"  # '/a/b' -> '/a/', 'C:\a\b' -> 'C:\a\'
 
@@ -173,7 +194,9 @@ __yo_gen_required() {
 __yo_gen_opts() {
   local required \
     index=$1 \
-    regex="\.(option|hookFor)\(\s*(['\"])([^'\"]+)\2" output='--\3'
+    regex1="\.(option|hookFor)\(\s*(['\"])([^'\"]+)\2" \
+    regex1+='(.*(defaults:\s+true)|)' output1='--\5\3' \
+    regex2='--defaults:\s+true(.*)' output2='--no-\1'
 
   if [ -f "$index" ]; then
     echo '--help'
@@ -184,7 +207,8 @@ __yo_gen_opts() {
       required+="$( __yo_gen_required "$required" )"
       echo "$required"
 
-    } | sort -u | __yo_cat | __yo_sed "$regex" "$output"
+    } | sort -u | __yo_cat | __yo_sed -n -d ';' "$regex1" "$output1" \
+      | __yo_sed -- "$regex2" "$output2"
   fi | sort -u
 }
 
@@ -251,7 +275,7 @@ _yo_subgens() {
       for index in "$p"/generator-*/{,generators/}*/index.js; do
         [ -f "$index" ] && echo "$index"
       done
-    done | __yo_sed "$regex" "$output" | sort -u
+    done | __yo_sed -n "$regex" "$output" | sort -u
   )
   __yo_compgen "$subgens" "${words[$cword]}"
   __yo_check_completed && __yo_finish_word
@@ -275,7 +299,7 @@ _yo_gens() {
       for index in "$p"/generator-*/{,generators/}app/index.js; do
         [ -f "$index" ] && echo "$index"
       done
-    done | __yo_sed "$regex" "$output" | sort -u
+    done | __yo_sed -n "$regex" "$output" | sort -u
   )
   __yo_compgen "$gens" "${words[$cword]}"
   if __yo_check_completed "${words[$cword]}"; then
