@@ -8,21 +8,21 @@
 # @param $OSTYPE global string  System variable
 # @param $NODE_PATH global string  Node.js variable with module locations
 # @param $PWD global string  Current location in file system
-# @stdout  List of Node.js module locations
+# @stdout  List of newline-delimited Node.js module locations
 __yo_node_path() {
-  local IFS p
+  local IFS
 
   case $OSTYPE in
     *cygwin*|*msys*) IFS=';' ;; # Windows
     *)               IFS=':' ;; # Unix
   esac
 
-  for p in $NODE_PATH; do echo "$p"; done
+  printf '%s\n' $NODE_PATH
   echo "$PWD/node_modules"  # faster than calling $(npm root)
 }
 
 # @param $1 integer  Max # of lines to read from each file (default: 1000)
-# @stdin  New-line separated list of file paths to read from
+# @stdin  List of newline-delimited file paths to read from
 # @stdout  Concatenated contents of all files specified that exist
 __yo_cat() {
   local file_name line i
@@ -42,13 +42,17 @@ __yo_cat() {
 # @stdin  Lines of input to match and modify
 # @stdout  Lines matching regex ($1) modified according to $2
 __yo_sed() {
-  local line regex=$1 output=$2
+  local q line regex=$1 output=$2
+
+  q="'" output=${output//$q/$q\\$q$q}
 
   while [[ $output =~ (.*)\\([0-9])(.*) ]]; do
     output="${BASH_REMATCH[1]}"
-    output+="\${BASH_REMATCH[${BASH_REMATCH[2]}]}"
+    output+="'\${BASH_REMATCH[${BASH_REMATCH[2]}]}'"
     output+="${BASH_REMATCH[3]}"
   done
+
+  output="'$output'"
 
   while read -r line; do
     [[ $line =~ $regex ]] && eval "echo $output"
@@ -60,12 +64,12 @@ __yo_sed() {
 # @param $2 primitive  String/integer value to assign to the variable
 # @modifies ${!1}  Variable referenced indirectly by $1, if set
 __yo_up_var() {
-  [ -n "${!1+set}" ] && eval "$1='$2'"
+  [ -n "${!1+set}" ] && eval "$1"'=$2'
 }
 
 # Assign array to variable referenced by $1, but only if it's been set
 # @param $1 string  Name of a variable to assign to
-# @param $2 array  Array values to assign to the variable
+# @param ${@:2} array  Array values to assign to the variable
 # @modifies ${!1}  Variable referenced indirectly by $1, if set
 __yo_up_arr() {
   [ -n "${!1+set}" ] && eval "$1"'=( "${@:2}" )'
@@ -94,7 +98,7 @@ __yo_get_comp_words() {
 # Remove word-colon prefix from COMPREPLY items
 # @param $1 string  Current word to complete (cur)
 # @param $COMPREPLY global array  Completions prefixed with '<GENERATOR>:'
-# @modifies $COMPREPLY global array
+# @modifies $COMPREPLY global array  Generated completions
 __yo_ltrim_colon_completions() {
   local item prefix \
     cur="$1" \
@@ -109,7 +113,7 @@ __yo_ltrim_colon_completions() {
   done
 }
 
-# @param $1 string  Path containing instances of /../ or /./
+# @param $1 string  Path containing any of /../, \..\, /./ or \.\
 # @stdout  Normalised path
 __yo_collapse_path() {
   local basename \
@@ -143,7 +147,7 @@ __yo_gen_index() {
 # @param $1 string  List of newline-delimited paths to *.js files
 # @stdout  List of paths to files required by files given
 __yo_gen_required() {
-  local files file path \
+  local path files file f \
     IFS=$'\n' \
     regex="require\(\s*(['\"])(\.[^'\"]+)\1" output='\2'
 
@@ -156,20 +160,15 @@ __yo_gen_required() {
     path="${path%${path##*[/\\]}}"  # '/a/b' -> '/a/', 'C:\a\b' -> 'C:\a\'
 
     for file in $files; do
-
-      file="${path}${file}"
-      [ -f "$file" ] &&
-        echo "$( __yo_collapse_path "$file" )" && continue
-
-      file+='.js'
-      [ -f "$file" ] &&
-        echo "$( __yo_collapse_path "$file" )"
-
+      for f in "${path}${file}"{,.js}; do
+        [ -f "$f" ] && __yo_collapse_path "$f" && break
+      done
     done
+
   done | sort -u
 }
 
-# @param $1 string  Path to a (sub)generator
+# @param $1 string  Path to a (sub)generator's index.js file
 # @stdout  List of (sub)generator's options (flags)
 __yo_gen_opts() {
   local required \
@@ -200,14 +199,14 @@ __yo_main_opts() {
 # @param ${@:2} array  Words typed so far (words)
 # @stdout  Options (flags) for the main command or for a (sub)generator
 _yo_opts() {
-  local path opts \
+  local index opts \
     cword=$1 \
     words=( "${@:2}" )
 
-  path=$( __yo_first_gen "$cword" "${words[@]}" )
+  index=$( __yo_first_gen "$cword" "${words[@]}" )
 
-  if [ -n "$path" ]; then
-    opts="$( __yo_gen_opts "$path" )"
+  if [ -n "$index" ]; then
+    opts="$( __yo_gen_opts "$index" )"
   else
     opts=$( __yo_main_opts )
   fi
@@ -216,16 +215,17 @@ _yo_opts() {
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
-# @param ${@:2} array  Words typed so far (words)
-# @stdout  Path to the 1st (sub)generator on the command line, if specified
-# @return  True (0) if (sub)generator found, False (>0) otherwise
+# @param ${@:2} array  Words typed so far (words); args start at ${@:3}
+# @stdout  Path to index.js of 1st (sub)generator up to cursor, if present
+# @return  True (0) if index.js found, False (>0) otherwise
 __yo_first_gen() {
-  local path i=0 \
+  local index i=0 \
     words=( "${@:2}" )
 
+  # skip command name: ${@[0]}, and stop before current word
   while [ $(( ++i )) -lt $1 ]; do
-    path="$( __yo_gen_index "${words[$i]}" )"
-    [ -n "$path" ] && echo "$path" && return 0
+    index="$( __yo_gen_index "${words[$i]}" )"
+    [ -n "$index" ] && echo "$index" && return 0
   done
 
   return 1
@@ -235,7 +235,7 @@ __yo_first_gen() {
 # @param ${@:2} array  Words typed so far (words)
 # @stdout  Names of sub-generators in the format 'aa:bb'
 _yo_subgens() {
-  local p subgens \
+  local p index subgens \
     IFS=$'\n' \
     cword=$1 \
     words=( "${@:2}" ) \
@@ -248,7 +248,9 @@ _yo_subgens() {
 
   subgens=$(
     for p in $( __yo_node_path ); do
-      ls -df "$p"/generator-*/{,generators/}*/index.js 2> /dev/null
+      for index in "$p"/generator-*/{,generators/}*/index.js; do
+        [ -f "$index" ] && echo "$index"
+      done
     done | __yo_sed "$regex" "$output" | sort -u
   )
   __yo_compgen "$subgens" "${words[$cword]}"
@@ -259,7 +261,7 @@ _yo_subgens() {
 # @param ${@:2} array  Words typed so far (words)
 # @stdout  Names of generators
 _yo_gens() {
-  local p gens \
+  local p index gens \
     IFS=$'\n' \
     cword=$1 \
     words=( "${@:2}" ) \
@@ -270,7 +272,9 @@ _yo_gens() {
 
   gens=$(
     for p in $( __yo_node_path ); do
-      ls -df "$p"/generator-*/{,generators/}app/index.js 2> /dev/null
+      for index in "$p"/generator-*/{,generators/}app/index.js; do
+        [ -f "$index" ] && echo "$index"
+      done
     done | __yo_sed "$regex" "$output" | sort -u
   )
   __yo_compgen "$gens" "${words[$cword]}"
@@ -280,9 +284,9 @@ _yo_gens() {
 }
 
 # @param $1 string  Current word to complete (cur) or empty string
-# @param $COMPREPLY global array  Completions
-# @return  True (0) if unique completion matches current word, if given,
-#          False(>0), otherwise
+# @param $COMPREPLY global array  Generated completions
+# @return  True (0) if only 1 completion present and, either current word
+#          not supplied, or it matches the completion, False(>0) otherwise
 __yo_check_completed() {
   if [[ ${#COMPREPLY[@]} -eq 1 && ( -z $1 || $1 == $COMPREPLY ) ]]; then
     return 0
@@ -290,14 +294,14 @@ __yo_check_completed() {
   return 1
 }
 
-# @modifies $COMPREPLY global array
+# @modifies $COMPREPLY global array  Generated completions
 __yo_finish_word() {
   COMPREPLY=( "$COMPREPLY " )  # complete and move on
 }
 
-# @param $1 string  Completions
+# @param $1 string  Potential completions
 # @param $2 string  Current word to complete (cur)
-# @modifies $COMPREPLY global array
+# @modifies $COMPREPLY global array  Generated completions
 __yo_compgen() {
   COMPREPLY=( $( compgen -W "$1" -- "$2" ) )
 }
