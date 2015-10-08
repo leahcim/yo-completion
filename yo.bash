@@ -126,13 +126,13 @@ __yo_gen_index() {
 __yo_gen_required() {
   local path files file f \
     IFS=$'\n' \
-    regex="s/.*require(\s*\(['\"]\)\(\.[^'\"]\+\)\1.*/\2/p"
+    regex="s/.*require\([[:space:]]*['\"](\.[^'\"]+).*/\1/p"
 
   for path in $1; do
     [ -f "$path" ] || continue
 
     # don't search whole files - prioritise speed
-    files=$(echo "$path" | __yo_cat 15 | sed -n "$regex")
+    files=$(echo "$path" | __yo_cat 15 | sed -En "$regex")
 
     path="${path%${path##*[/\\]}}"  # '/a/b' -> '/a/', 'C:\a\b' -> 'C:\a\'
 
@@ -150,9 +150,9 @@ __yo_gen_required() {
 __yo_gen_opts() {
   local required \
     index=$1 \
-    regex1="s/.*\.\(option\|hookFor\)(\s*\(['\"]\)\([^'\"]\+\)\2" \
-    regex1+='\(.*\(defaults:\s\+true\)\)\?.*/--\5\3/p' \
-    regex2='s/--defaults:\s\+true\(.*\)/--no-\1/'
+    regex1="s/.*\.(option|hookFor)\([[:space:]]*['\"]([^'\"]+)" \
+    regex1+='(.*(defaults:[[:space:]]+true))?.*/--\4\2/p' \
+    regex2='s/--defaults:[[:space:]]+true(.*)/--no-\1/'
 
   if [ -f "$index" ]; then
     echo '--help'
@@ -163,8 +163,8 @@ __yo_gen_opts() {
       required+="$( __yo_gen_required "$required" )"
       echo "$required"
 
-    } | sort -u | __yo_cat | tr ';\n' '\n ' | sed -n "$regex1" \
-      | sed -- "$regex2"
+    } | sort -u | __yo_cat | tr ';\n' '\n ' | sed -En "$regex1" \
+      | sed -E -- "$regex2"
   fi | sort -u
 }
 
@@ -218,9 +218,9 @@ _yo_subgens() {
     IFS=$'\n' \
     cword=$1 \
     words=( "${@}" ) \
-    regex='s/.*generator-\([^/\\]\+\)[/\\]' \
-    regex+='\(generators[/\\]\)\?' \
-    regex+='\([^/\\]\+\)[/\\]index\.js/\1:\3/p'
+    regex='s/.*generator-([^/\]+)[/\]' \
+    regex+='(generators[/\])?' \
+    regex+='([^/\]+)[/\]index\.js/\1:\3/p'
 
   unset words[0]; words=( "${words[@]}" )  # hacky fix for bash 3.1
 
@@ -232,7 +232,7 @@ _yo_subgens() {
       for index in "$p"/generator-*/{,generators/}*/index.js; do
         [ -f "$index" ] && echo "$index"
       done
-    done | sed -n "$regex" | sort -u
+    done | sed -En "$regex" | sort -u
   )
   __yo_compgen "$subgens" "${words[$cword]}"
   __yo_check_completed && __yo_finish_word
@@ -246,7 +246,7 @@ _yo_gens() {
     IFS=$'\n' \
     cword=$1 \
     words=( "${@:2}" ) \
-    regex='s/.*generator-\([^/\\]\+\).*/\1/p'
+    regex='s/.*generator-([^/\]+).*/\1/p'
   cur=${words[$cword]}
 
   # only one generator allowed
@@ -257,7 +257,7 @@ _yo_gens() {
       for index in "$p"/generator-*/{,generators/}app/index.js; do
         [ -f "$index" ] && echo "$index"
       done
-    done | sed -n "$regex" | sort -u
+    done | sed -En "$regex" | sort -u
   )
   __yo_compgen "$gens" "$cur"
   if __yo_check_completed "$cur"; then
