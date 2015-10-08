@@ -179,10 +179,11 @@ __yo_main_opts() {
 # @param ${@:2} array  Words typed so far (words)
 # @stdout  Options (flags) for the main command or for a (sub)generator
 _yo_opts() {
-  local index opts \
+  local index opts cur \
     cword=$1 \
     words=( "${@:2}" )
 
+  cur=${words[$cword]}
   index=$( __yo_first_gen "$cword" "${words[@]}" )
 
   if [ -n "$index" ]; then
@@ -190,8 +191,8 @@ _yo_opts() {
   else
     opts=$( __yo_main_opts )
   fi
-  __yo_compgen "$opts" "${words[$cword]}"
-  __yo_check_completed "${words[$cword]}" && __yo_finish_word
+  __yo_compgen "$opts" "$cur"
+  __yo_check_completed "$cur" && __yo_finish_word
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
@@ -201,6 +202,7 @@ _yo_opts() {
 __yo_first_gen() {
   local index i=0 \
     words=( "${@}" )
+
   unset words[0]; words=( "${words[@]}" )  # hacky fix for bash 3.1
 
   # skip command name: ${words[0]}, and stop before current word
@@ -247,6 +249,7 @@ _yo_gens() {
     cword=$1 \
     words=( "${@:2}" ) \
     regex='s/.*generator-([^/\]+).*/\1/p'
+
   cur=${words[$cword]}
 
   # only one generator allowed
@@ -261,7 +264,7 @@ _yo_gens() {
   )
   __yo_compgen "$gens" "$cur"
   if __yo_check_completed "$cur"; then
-   _yo_subgens "$cword" "${words[@]}"
+    __yo_compgen "$cur:" "$cur"
   fi
 }
 
