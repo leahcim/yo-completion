@@ -36,50 +36,6 @@ __yo_cat() {
   done
 }
 
-# Options:
-#   -d DELIMITER  Character to be used as the line delimiter (default: \n)
-#   -n            Do not print non-matching lines (default: False)
-#   --            End of options
-# @param $1 string  Regular expresion to match
-# @param $2 string  Replacement pattern referencing matched groups: \0-\9
-# @param $BASH_REMATCH global array  Matched subexpressions (groups)
-# @stdin  Lines of input to match and modify
-# @stdout  Lines matching regex ($1) modified according to $2
-__yo_sed() {
-  local q line regex output \
-    delim=$'\n' \
-    print='yes'
-
-  while [[ $1 == -? ]]; do
-    case $1 in
-      -d) delim=$2; shift 2 ;;
-      -n) print='no'; shift ;;
-      --) shift; break ;;
-       *) echo "__yo_sed: Unknown option '$1'" >&2; exit 1
-    esac
-  done
-
-  regex=$1 output=$2
-  q="'" output=${output//$q/$q\\$q$q}
-
-  while [[ $output =~ (.*)\\([0-9])(.*) ]]; do
-    output="${BASH_REMATCH[1]}"
-    output+="'\${BASH_REMATCH[${BASH_REMATCH[2]}]}'"
-    output+="${BASH_REMATCH[3]}"
-  done
-
-  output="'$output'"
-
-  # if no delimiter at EOF, read returns error, but $line is still set
-  while read -d "$delim" -r line || [ -n "$line" ]; do
-    if [[ $line =~ $regex ]]; then
-      eval "echo $output"
-    elif [ "$print" == 'yes' ]; then
-      echo "$line"
-    fi
-  done
-}
-
 # Assign value to variable referenced by $1, but only if it's been set
 # @param $1 string  Name of a variable to assign to
 # @param $2 primitive  String/integer value to assign to the variable
@@ -170,13 +126,13 @@ __yo_gen_index() {
 __yo_gen_required() {
   local path files file f \
     IFS=$'\n' \
-    regex="require\(\s*(['\"])(\.[^'\"]+)\1" output='\2'
+    regex="s/.*require(\s*\(['\"]\)\(\.[^'\"]\+\)\1.*/\2/p"
 
   for path in $1; do
     [ -f "$path" ] || continue
 
     # don't search whole files - prioritise speed
-    files=$(echo "$path" | __yo_cat 15 | __yo_sed -n "$regex" "$output")
+    files=$(echo "$path" | __yo_cat 15 | sed -n "$regex")
 
     path="${path%${path##*[/\\]}}"  # '/a/b' -> '/a/', 'C:\a\b' -> 'C:\a\'
 
@@ -194,9 +150,9 @@ __yo_gen_required() {
 __yo_gen_opts() {
   local required \
     index=$1 \
-    regex1="\.(option|hookFor)\(\s*(['\"])([^'\"]+)\2" \
-    regex1+='(.*(defaults:\s+true)|)' output1='--\5\3' \
-    regex2='--defaults:\s+true(.*)' output2='--no-\1'
+    regex1="s/.*\.\(option\|hookFor\)(\s*\(['\"]\)\([^'\"]\+\)\2" \
+    regex1+='\(.*\(defaults:\s\+true\)\)\?.*/--\5\3/p' \
+    regex2='s/--defaults:\s\+true\(.*\)/--no-\1/'
 
   if [ -f "$index" ]; then
     echo '--help'
@@ -207,8 +163,8 @@ __yo_gen_opts() {
       required+="$( __yo_gen_required "$required" )"
       echo "$required"
 
-    } | sort -u | __yo_cat | __yo_sed -n -d ';' "$regex1" "$output1" \
-      | __yo_sed -- "$regex2" "$output2"
+    } | sort -u | __yo_cat | tr ';\n' '\n ' | sed -n "$regex1" \
+      | sed -- "$regex2"
   fi | sort -u
 }
 
@@ -244,15 +200,14 @@ _yo_opts() {
 # @return  True (0) if index.js found, False (>0) otherwise
 __yo_first_gen() {
   local index i=0 \
-    words=( "${@:2}" )
+    words=( "${@}" )
+  unset words[0]; words=( "${words[@]}" )  # hacky fix for bash 3.1
 
-  # skip command name: ${@[0]}, and stop before current word
+  # skip command name: ${words[0]}, and stop before current word
   while [ $(( ++i )) -lt $1 ]; do
     index="$( __yo_gen_index "${words[$i]}" )"
-    [ -n "$index" ] && echo "$index" && return 0
+    [ -n "$index" ] && echo "$index" && return
   done
-
-  return 1
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
@@ -262,20 +217,22 @@ _yo_subgens() {
   local p index subgens \
     IFS=$'\n' \
     cword=$1 \
-    words=( "${@:2}" ) \
-    regex='generator-([^/\\]+)[/\\]' \
-    regex+='(generators[/\\]|)' \
-    regex+='([^/\\]+)[/\\]index\.js' output='\1:\3'
+    words=( "${@}" ) \
+    regex='s/.*generator-\([^/\\]\+\)[/\\]' \
+    regex+='\(generators[/\\]\)\?' \
+    regex+='\([^/\\]\+\)[/\\]index\.js/\1:\3/p'
+
+  unset words[0]; words=( "${words[@]}" )  # hacky fix for bash 3.1
 
   # only one generator allowed
-  ( __yo_first_gen "$cword" "${words[@]}" > /dev/null ) && return
+  [ -n "$( __yo_first_gen "$cword" "${words[@]}" )" ] && return
 
   subgens=$(
     for p in $( __yo_node_path ); do
       for index in "$p"/generator-*/{,generators/}*/index.js; do
         [ -f "$index" ] && echo "$index"
       done
-    done | __yo_sed -n "$regex" "$output" | sort -u
+    done | sed -n "$regex" | sort -u
   )
   __yo_compgen "$subgens" "${words[$cword]}"
   __yo_check_completed && __yo_finish_word
@@ -285,24 +242,25 @@ _yo_subgens() {
 # @param ${@:2} array  Words typed so far (words)
 # @stdout  Names of generators
 _yo_gens() {
-  local p index gens \
+  local p index gens cur \
     IFS=$'\n' \
     cword=$1 \
     words=( "${@:2}" ) \
-    regex='generator-([^/\\]+)' output='\1'
+    regex='s/.*generator-\([^/\\]\+\).*/\1/p'
+  cur=${words[$cword]}
 
   # only one generator allowed
-  ( __yo_first_gen "$cword" "${words[@]}" > /dev/null ) && return
+  [ -n "$( __yo_first_gen "$cword" "${words[@]}" )" ] && return
 
   gens=$(
     for p in $( __yo_node_path ); do
       for index in "$p"/generator-*/{,generators/}app/index.js; do
         [ -f "$index" ] && echo "$index"
       done
-    done | __yo_sed -n "$regex" "$output" | sort -u
+    done | sed -n "$regex" | sort -u
   )
-  __yo_compgen "$gens" "${words[$cword]}"
-  if __yo_check_completed "${words[$cword]}"; then
+  __yo_compgen "$gens" "$cur"
+  if __yo_check_completed "$cur"; then
    _yo_subgens "$cword" "${words[@]}"
   fi
 }
