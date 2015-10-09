@@ -148,15 +148,20 @@ __yo_gen_required() {
 # @param $1 string  Path to a (sub)generator's index.js file
 # @stdout  List of (sub)generator's options (flags)
 __yo_gen_opts() {
-  local required \
+  local file required \
+    yo_gen_base='../node_modules/yeoman-generator/lib/base.js' \
     index=$1 \
-    regex1="s/.*\.(option|hookFor)\([[:space:]]*['\"]([^'\"]+)" \
+    regex1='/^[^*]{3}/' \
+    regex1+="s/.*\.(option|hookFor)\([[:space:]]*['\"]([^'\"]+)" \
     regex1+='(.*(defaults:[[:space:]]+true))?.*/--\4\2/p' \
     regex2='s/--defaults:[[:space:]]+true(.*)/--no-\1/'
 
   if [ -f "$index" ]; then
-    echo '--help'
     {
+      for file in "${index%[/\\]*}"/{,../}"$yo_gen_base"; do
+        [ -f "$file" ] && echo "$file" && break
+      done
+
       echo "$index"
 
       required="$( __yo_gen_required "$index" )"$'\n'
@@ -164,7 +169,7 @@ __yo_gen_opts() {
       echo "$required"
 
     } | sort -u | __yo_cat | tr ';\n' '\n ' | sed -En "$regex1" \
-      | sed -E -- "$regex2"
+      | sed -E "$regex2"
   fi | sort -u
 }
 
