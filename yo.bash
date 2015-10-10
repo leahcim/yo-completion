@@ -1,24 +1,31 @@
 # Command completion for Yeoman
 # by Michael Ichnowski
 
-# Default value for $NODE_PATH - a one-off performance penalty only
-# incurred if $NODE_PATH has not been set
-: ${NODE_PATH:=$( npm -g root )}
-
 # @param $OSTYPE global string  System variable
+# @param $APPDATA global string  System variable on MS Windows
 # @param $NODE_PATH global string  Node.js variable with module locations
 # @param $PWD global string  Current location in file system
 # @stdout  List of newline-delimited Node.js module locations
 __yo_node_path() {
-  local IFS
+  local IFS prefix dir \
 
   case $OSTYPE in
-    *cygwin*|*msys*) IFS=';' ;; # Windows
-    *)               IFS=':' ;; # Unix
+    *cygwin*|*msys*) IFS=';' prefix="$APPDATA/npm" ;; # Windows
+    *)               IFS=':' prefix='/usr/lib'     ;; # Unix
   esac
 
-  printf '%s\n' $NODE_PATH
-  echo "$PWD/node_modules"  # faster than calling $(npm root)
+  if [ "$NODE_PATH" ]; then
+    printf '%s\n' $NODE_PATH
+  else
+    echo "$prefix/node_modules"
+  fi
+
+  # Search for local node_modules folders here and at every level up
+  dir=$PWD
+  while [ "$dir" ]; do
+    [ -d "$dir/node_modules" ] && echo "$dir/node_modules"
+    dir=${dir%[/\\]*}
+  done
 }
 
 # @param $1 integer  Max # of lines to read from each file (default: 1000)
@@ -96,9 +103,16 @@ __yo_collapse_path() {
   local basename \
     dirname="${1%[/\\]*}"
 
-  basename="${1#${dirname//\\/\\\\}}"  # '/a/b' -> '/b', 'C:\a\b' -> '\b'
+  # if top-level directory given (e.g. /usr), print it and return
+  # if only filename without path given, print it and return
+  case $dirname in
+    '') echo "$1" && return ;;
+    $1) [ -d "$dirname" ] || echo "$1" && return
+  esac
 
-  [ -d "$dirname" ] && echo "$(cd "$dirname"; pwd)${basename}"
+  basename="${1##*[/\\]}"
+
+  [ -d "$dirname" ] && echo "$(cd "$dirname"; pwd)/${basename}"
 }
 
 # @param $1 string  (Sub)generator name, in the format 'aa' or 'aa:bb'
@@ -115,7 +129,9 @@ __yo_gen_index() {
   fi
 
   for p in $( __yo_node_path ); do
-    for index in "$p/generator-$gen/"{,generators/}"$subgen/index.js"; do
+    for index in \
+      "$p/generator-$gen/"{,{,lib/}generators/}"$subgen/index.js"; do
+
       [ -f "$index" ] && echo "$index" && return
     done
   done
@@ -158,7 +174,7 @@ __yo_gen_opts() {
 
   if [ -f "$index" ]; then
     {
-      for file in "${index%[/\\]*}"/{,../}"$yo_gen_base"; do
+      for file in "${index%[/\\]*}"/{,../,../../}"$yo_gen_base"; do
         [ -f "$file" ] && echo "$file" && break
       done
 
@@ -226,8 +242,8 @@ _yo_subgens() {
     cword=$1 \
     words=( "${@}" ) \
     regex='s/.*generator-([^/\]+)[/\]' \
-    regex+='(generators[/\])?' \
-    regex+='([^/\]+)[/\]index\.js/\1:\3/p'
+    regex+='((lib[/\])?generators[/\])?' \
+    regex+='([^/\]+)[/\]index\.js/\1:\4/p'
 
   unset words[0]; words=( "${words[@]}" )  # hacky fix for bash 3.1
 
@@ -236,7 +252,7 @@ _yo_subgens() {
 
   subgens=$(
     for p in $( __yo_node_path ); do
-      for index in "$p"/generator-*/{,generators/}*/index.js; do
+      for index in "$p"/generator-*/{,{,lib/}generators/}*/index.js; do
         [ -f "$index" ] && echo "$index"
       done
     done | sed -En "$regex" | sort -u
@@ -262,7 +278,7 @@ _yo_gens() {
 
   gens=$(
     for p in $( __yo_node_path ); do
-      for index in "$p"/generator-*/{,generators/}app/index.js; do
+      for index in "$p"/generator-*/{,{,lib/}generators/}app/index.js; do
         [ -f "$index" ] && echo "$index"
       done
     done | sed -En "$regex" | sort -u
