@@ -7,7 +7,7 @@
 # @param $PWD global string  Current location in file system
 # @stdout  List of newline-delimited Node.js module locations
 __yo_node_path() {
-  local IFS prefix dir \
+  local IFS prefix dir max_depth=20
 
   case $OSTYPE in
     *cygwin*|*msys*) IFS=';' prefix="$APPDATA/npm" ;; # Windows
@@ -20,11 +20,11 @@ __yo_node_path() {
     echo "$prefix/node_modules"
   fi
 
-  # Search for local node_modules folders here and at every level up
+  # Search for local node_modules folders here and up to $max_depth up
   dir=$PWD
-  while [ "$dir" ]; do
+  while [ "$dir" -a $(( max_depth-- )) -gt 0 ]; do
     [ -d "$dir/node_modules" ] && echo "$dir/node_modules"
-    dir=${dir%[/\\]*}
+    dir=${dir%/*}
   done
 }
 
@@ -83,7 +83,7 @@ __yo_get_comp_words() {
 # @modifies $COMPREPLY global array  Generated completions
 __yo_ltrim_colon_completions() {
   local item prefix \
-    cur="$1" \
+    cur=$1 \
     i=${#COMPREPLY[@]}
 
   prefix=${cur%${cur##*:}}
@@ -177,8 +177,8 @@ __yo_gen_opts() {
 
       echo "$index"
 
-      required="$( __yo_gen_required "$index" )"$'\n'
-      required+="$( __yo_gen_required "$required" )"
+      required=$( __yo_gen_required "$index" )$'\n'
+      required+=$( __yo_gen_required "$required" )
       echo "$required"
 
     } | __yo_cat | tr ';\n' '\n ' | sed -En "$regex1" \
@@ -199,6 +199,7 @@ __yo_parse_usage() {
 # @stdout  Main command options (flags)
 __yo_main_opts() {
   local p \
+    IFS=$'\n' \
     usage='yo/lib/usage.txt'
 
   for p in $( __yo_node_path ); do
@@ -206,21 +207,22 @@ __yo_main_opts() {
   done
 }
 
-# @param $1 integer  Index of the current word to complete (cword)
-# @param ${@:2} array  Words typed so far (words)
+# @param $1 string  Current word to complete (cur)
+# @param $2 integer  Index of the current word to complete (cword)
+# @param ${@:3} array  Words typed so far (words)
 # @stdout  Options (flags) for the main command or for a (sub)generator
 _yo_opts() {
-  local index opts cur \
-    cword=$1 \
-    words=( "${@:2}" )
+  local index opts \
+    cur=$1 \
+    cword=$2 \
+    words=( "${@:3}" )
 
-  cur=${words[$cword]}
   index=$( __yo_first_gen "$cword" "${words[@]}" )
 
   if [ -n "$index" ]; then
-    opts="$( __yo_gen_opts "$index" )"
+    opts=$( __yo_gen_opts "$index" )
   else
-    [[ "${words[*]}" != *\ doctor\ * ]] && opts=$( __yo_main_opts )
+    [[ ${words[*]} != *\ doctor\ * ]] && opts=$( __yo_main_opts )
   fi
   __yo_compgen "$opts" "$cur"
   __yo_check_completed "$cur" && __yo_finish_word
@@ -231,31 +233,31 @@ _yo_opts() {
 # @stdout  Path to index.js of 1st (sub)generator up to cursor, if present
 # @return  True (0) if index.js found, False (>0) otherwise
 __yo_first_gen() {
-  local index i=0 \
-    words=( "${@}" )
-
-  unset words[0]; words=( "${words[@]}" )  # hacky fix for bash 3.1
+  local i index words \
+    cword=$1
+  shift; words=( "$@" )
 
   # skip command name: ${words[0]}, and stop before current word
-  while [ $(( ++i )) -lt $1 ]; do
-    index="$( __yo_gen_index "${words[$i]}" )"
+  for (( i=1; i < $cword; i++ )); do
+    index=$( __yo_gen_index "${words[$i]}" )
     [ -n "$index" ] && echo "$index" && return
   done
 }
 
-# @param $1 integer  Index of the current word to complete (cword)
-# @param ${@:2} array  Words typed so far (words)
+# @param $1 string  Current word to complete (cur)
+# @param $2 integer  Index of the current word to complete (cword)
+# @param ${@:3} array  Words typed so far (words)
 # @stdout  Names of sub-generators in the format 'aa:bb'
 _yo_subgens() {
-  local p index subgens \
+  local p index words subgens \
     IFS=$'\n' \
-    cword=$1 \
-    words=( "${@}" ) \
+    cur=$1 \
+    cword=$2 \
     regex='s/.*generator-([^/\]+)[/\]' \
     regex+='((lib[/\])?generators[/\])?' \
     regex+='([^/\]+)[/\]index\.js/\1:\4/p'
 
-  unset words[0]; words=( "${words[@]}" )  # hacky fix for bash 3.1
+  shift 2; words=( "$@" )
 
   # only one generator allowed
   [ -n "$( __yo_first_gen "$cword" "${words[@]}" )" ] && return
@@ -267,21 +269,21 @@ _yo_subgens() {
       done
     done | sed -En "$regex" | sort -u
   )
-  __yo_compgen "$subgens" "${words[$cword]}"
+  __yo_compgen "$subgens" "$cur"
   __yo_check_completed && __yo_finish_word
 }
 
-# @param $1 integer  Index of the current word to complete (cword)
-# @param ${@:2} array  Words typed so far (words)
+# @param $1 string  Current word to complete (cur)
+# @param $2 integer  Index of the current word to complete (cword)
+# @param ${@:3} array  Words typed so far (words)
 # @stdout  Names of generators
 _yo_gens() {
-  local p index gens cur \
+  local p index gens \
     IFS=$'\n' \
-    cword=$1 \
-    words=( "${@:2}" ) \
+    cur=$1 \
+    cword=$2 \
+    words=( "${@:3}" ) \
     regex='s/.*generator-([^/\]+).*/\1/p'
-
-  cur=${words[$cword]}
 
   # only one generator allowed
   [ -n "$( __yo_first_gen "$cword" "${words[@]}" )" ] && return
@@ -335,10 +337,10 @@ _yo() {
 
   __yo_get_comp_words
 
-  case "$cur" in
-    -*) _yo_opts    "$cword" "${words[@]}" ;;
-   *:*) _yo_subgens "$cword" "${words[@]}" ;;
-     *) _yo_gens    "$cword" "${words[@]}"
+  case $cur in
+    -*) _yo_opts    "$cur" "$cword" "${words[@]}" ;;
+   *:*) _yo_subgens "$cur" "$cword" "${words[@]}" ;;
+     *) _yo_gens    "$cur" "$cword" "${words[@]}"
   esac
 
   __yo_ltrim_colon_completions "$cur"
