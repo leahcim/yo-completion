@@ -207,41 +207,44 @@ __yo_main_opts() {
   done
 }
 
-# @param $1 string  Current word to complete (cur)
-# @param $2 integer  Index of the current word to complete (cword)
-# @param ${@:3} array  Words typed so far (words)
-# @stdout  Options (flags) for the main command or for a (sub)generator
-_yo_opts() {
-  local index opts \
-    cur=$1 \
-    cword=$2 \
-    words=( "${@:3}" )
-
-  index=$( __yo_first_gen "$cword" "${words[@]}" )
-
-  if [ -n "$index" ]; then
-    opts=$( __yo_gen_opts "$index" )
-  else
-    [[ ${words[*]} != *\ doctor\ * ]] && opts=$( __yo_main_opts )
-  fi
-  __yo_compgen "$opts" "$cur"
-  __yo_check_completed "$cur" && __yo_finish_word
-}
-
 # @param $1 integer  Index of the current word to complete (cword)
 # @param ${@:2} array  Words typed so far (words); args start at ${@:3}
-# @stdout  Path to index.js of 1st (sub)generator up to cursor, if present
-# @return  True (0) if index.js found, False (>0) otherwise
-__yo_first_gen() {
-  local i index words \
+# @stdout  The 1st non-option argument up to cursor, if found,
+#          empty string otherwise
+__yo_first_arg() {
+  local i words \
     cword=$1
   shift; words=( "$@" )
 
   # skip command name: ${words[0]}, and stop before current word
   for (( i=1; i < $cword; i++ )); do
-    index=$( __yo_gen_index "${words[$i]}" )
-    [ -n "$index" ] && echo "$index" && return
+    [[ ${words[$i]} == [^-]* ]] && echo "${words[$i]}" && return
   done
+}
+
+# @param $1 string  Current word to complete (cur)
+# @param $2 integer  Index of the current word to complete (cword)
+# @param ${@:3} array  Words typed so far (words)
+# @stdout  Options (flags) for the main command or for a (sub)generator
+_yo_opts() {
+  local arg index opts \
+    cur=$1 \
+    cword=$2 \
+    words=( "${@:3}" )
+
+  arg=$( __yo_first_arg "$cword" "${words[@]}" )
+  [ "$arg" == 'doctor' ] && return
+
+  index=$( __yo_gen_index "$arg" )
+
+  if [ -n "$index" ]; then
+    opts=$( __yo_gen_opts "$index" )
+  else
+    opts=$( __yo_main_opts )
+  fi
+
+  __yo_compgen "$opts" "$cur"
+  __yo_check_completed "$cur" && __yo_finish_word
 }
 
 # @param $1 string  Current word to complete (cur)
@@ -260,7 +263,7 @@ _yo_subgens() {
   shift 2; words=( "$@" )
 
   # only one generator allowed
-  [ -n "$( __yo_first_gen "$cword" "${words[@]}" )" ] && return
+  [ -n "$( __yo_first_arg "$cword" "${words[@]}" )" ] && return
 
   subgens=$(
     for p in $( __yo_node_path ); do
@@ -286,7 +289,7 @@ _yo_gens() {
     regex='s/.*generator-([^/\]+).*/\1/p'
 
   # only one generator allowed
-  [ -n "$( __yo_first_gen "$cword" "${words[@]}" )" ] && return
+  [ -n "$( __yo_first_arg "$cword" "${words[@]}" )" ] && return
 
   gens=$(
     echo 'doctor'  # technically, not a generator, but listed with them
