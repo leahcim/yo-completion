@@ -28,16 +28,14 @@ __yo_node_path() {
   done
 }
 
-# @param $1 integer  Max # of lines to read from each file (default: 1000)
 # @stdin  List of newline-delimited file paths to read from
 # @stdout  Concatenated contents of all files specified that exist
 __yo_cat() {
-  local file_name line i
+  local file_name line
 
   while read -r file_name; do
     [ -f "$file_name" ] || continue
-    [ -n "$1" ] && i=$1 || i=1000  # max. no. of lines to read
-    while read -r line && (( i-- > 0 )); do
+    while read -r line; do
       echo "$line"
     done < "$file_name"
   done
@@ -147,13 +145,12 @@ __yo_gen_required() {
   for path in $1; do
     [ -f "$path" ] || continue
 
-    # don't search whole files - prioritise speed
-    files=$(echo "$path" | __yo_cat 15 | sed -En "$regex")
+    files=$( sed -En "$regex" "$path" )
 
-    path="${path%${path##*[/\\]}}"  # '/a/b' -> '/a/', 'C:\a\b' -> 'C:\a\'
+    path=${path%[/\\]*}  # '/a/b' -> '/a', 'C:\a\b' -> 'C:\a'
 
     for file in $files; do
-      for f in "${path}${file}"{,.js}; do
+      for f in "${path}/${file}"{,.js}; do
         [ -f "$f" ] && __yo_collapse_path "$f" && break
       done
     done
@@ -184,16 +181,29 @@ __yo_gen_opts() {
       required+="$( __yo_gen_required "$required" )"
       echo "$required"
 
-    } | sort -u | __yo_cat | tr ';\n' '\n ' | sed -En "$regex1" \
+    } | __yo_cat | tr ';\n' '\n ' | sed -En "$regex1" \
       | sed -E "$regex2"
   fi | sort -u
 }
 
+# @param $1 string  Name of a "usage" file to retrieve options from
+# @stdout  Options (flags) retrieved from the file
+__yo_parse_usage() {
+  local usage=$1 \
+    regex1='s/.*(--[^[:space:]]+).*/\1/p' \
+    regex2='s/--\[no-\](.*)/--\1\n--no-\1/'
+
+   sed -En "$regex1" "$usage" | sed -E "$regex2" | sort -u
+}
+
 # @stdout  Main command options (flags)
 __yo_main_opts() {
-  echo '
-    --force --generators --help --insight
-    --no-color --no-insight --version'
+  local p \
+    usage='yo/lib/usage.txt'
+
+  for p in $( __yo_node_path ); do
+    [ -f "$p/$usage" ] && __yo_parse_usage "$p/$usage" && break
+  done
 }
 
 # @param $1 integer  Index of the current word to complete (cword)
@@ -210,7 +220,7 @@ _yo_opts() {
   if [ -n "$index" ]; then
     opts="$( __yo_gen_opts "$index" )"
   else
-    opts=$( __yo_main_opts )
+    [[ "${words[*]}" != *\ doctor\ * ]] && opts=$( __yo_main_opts )
   fi
   __yo_compgen "$opts" "$cur"
   __yo_check_completed "$cur" && __yo_finish_word
@@ -277,15 +287,22 @@ _yo_gens() {
   [ -n "$( __yo_first_gen "$cword" "${words[@]}" )" ] && return
 
   gens=$(
+    echo 'doctor'  # technically, not a generator, but listed with them
+
     for p in $( __yo_node_path ); do
       for index in "$p"/generator-*/{,{,lib/}generators/}app/index.js; do
         [ -f "$index" ] && echo "$index"
       done
     done | sed -En "$regex" | sort -u
   )
+
   __yo_compgen "$gens" "$cur"
+
   if __yo_check_completed "$cur"; then
-    __yo_compgen "$cur:" "$cur"
+    case $cur in
+      doctor) __yo_finish_word ;;
+      *)      __yo_compgen "$cur:" "$cur"
+    esac
   fi
 }
 
