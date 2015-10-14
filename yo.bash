@@ -264,6 +264,22 @@ _yo_opts() {
   __yo_check_completed "$cur" && __yo_finish_word
 }
 
+# @param $1 string  Name of [generator]:[subgenerator] ('a:b', 'a:', ':b')
+# @stdout  List of newline-delimited paths to index.js files
+__yo_gen_indices() {
+  local p index \
+    IFS=$'\n' \
+    gen=${1%:*} \
+    subgen=${1#*:}
+
+  for p in $( __yo_node_path ); do
+    for index in \
+      "$p/generator-$gen"*/{,{,lib/}generators/}"$subgen"*/index.js; do
+      [ -f "$index" ] && echo "$index"
+    done
+  done
+}
+
 # @param $1 string  Current word to complete (cur)
 # @param $2 integer  Index of the current word to complete (cword)
 # @param ${@:3} array  Words typed so far (words)
@@ -282,13 +298,8 @@ _yo_subgens() {
   # only one generator allowed
   [ -n "$( __yo_first_arg "$cword" "${words[@]}" )" ] && return
 
-  subgens=$(
-    for p in $( __yo_node_path ); do
-      for index in "$p"/generator-*/{,{,lib/}generators/}*/index.js; do
-        [ -f "$index" ] && echo "$index"
-      done
-    done | sed -En "$regex" | sort -u
-  )
+  subgens=$( __yo_gen_indices "$cur" | sed -En "$regex" | sort -u )
+
   __yo_compgen "$subgens" "$cur"
   __yo_check_completed && __yo_finish_word
 }
@@ -308,15 +319,8 @@ _yo_gens() {
   # only one generator allowed
   [ -n "$( __yo_first_arg "$cword" "${words[@]}" )" ] && return
 
-  gens=$(
-    echo 'doctor'  # technically, not a generator, but listed with them
-
-    for p in $( __yo_node_path ); do
-      for index in "$p"/generator-*/{,{,lib/}generators/}app/index.js; do
-        [ -f "$index" ] && echo "$index"
-      done
-    done | sed -En "$regex" | sort -u
-  )
+  gens=$( __yo_gen_indices "$cur:app" | sed -En "$regex" | sort -u )
+  gens+=$'\ndoctor'  # technically, not a generator, but listed with them
 
   __yo_compgen "$gens" "$cur"
 
