@@ -1,31 +1,48 @@
 # Command completion for Yeoman
 # by Michael Ichnowski
 
+# Find the node_modules directory where 'yo' module itself is located
+# @return  Physical path to the global node_modules directory
+__yo_find_global_root() {
+  local yo bin cli lib
+
+  # No `readlink`? We're likely on Windows, so no links to read, anyway
+  [ -n "$(which readlink)" ] || return
+
+  yo=$( which yo )                      # e.g. ./node_modules/.bin/yo
+  bin=${yo%/yo}                         #      ./node_modules/.bin
+  cli=$( readlink "$yo" )               #      ../yo/lib/cli.js
+  lib=$( cd "$bin/${cli%/*}"; pwd -P )  # ~/.local/lib/node_modules/yo/lib
+  echo "${lib%/yo/lib}"                 # ~/.local/lib/node_modules
+}
+
 # @param $OSTYPE global string  System variable
 # @param $APPDATA global string  System variable on MS Windows
 # @param $NODE_PATH global string  Node.js variable with module locations
 # @param $PWD global string  Current location in file system
 # @stdout  List of newline-delimited Node.js module locations
 __yo_node_path() {
-  local IFS prefix dir max_depth=20
+  local IFS prefix root dir max_depth=20
 
   case $OSTYPE in
     *cygwin*|*msys*) IFS=';' prefix="$APPDATA/npm" ;; # Windows
     *)               IFS=':' prefix='/usr/lib'     ;; # Unix
   esac
 
-  if [ "$NODE_PATH" ]; then
-    printf '%s\n' $NODE_PATH
-  else
-    echo "$prefix/node_modules"
-  fi
-
-  # Search for local node_modules folders here and up to $max_depth up
+  # search for local 'node_modules' paths here and up to $max_depth up
   dir=$PWD
-  while [ "$dir" -a $(( max_depth-- )) -gt 0 ]; do
+  while [ "$dir" -a $(( max_depth-- )) -ge 0 ]; do
     [ -d "$dir/node_modules" ] && echo "$dir/node_modules"
     dir=${dir%/*}
   done
+
+  if [ "$NODE_PATH" ]; then
+    printf '%s\n' $NODE_PATH
+  else
+    root=$( __yo_find_global_root )
+    [[ -n $root && $root != $prefix/node_modules ]] && echo "$root"
+    [ -d "$prefix/node_modules" ] && echo "$prefix/node_modules"
+  fi
 }
 
 # @stdin  List of newline-delimited file paths to read from
@@ -64,7 +81,7 @@ __yo_up_arr() {
 # @modifies $words array  Words typed up to cursor
 __yo_get_comp_words() {
   local _cur _cword _words \
-    prev_char=${COMP_LINE:$(( COMP_POINT -1 )):1}
+    prev_char=${COMP_LINE:$(( COMP_POINT - 1 )):1}
 
   eval "_words=( ${COMP_LINE:0:$COMP_POINT} )"
   [ "$prev_char" == ' ' ] && _words+=( '' )
