@@ -261,7 +261,7 @@ _yo_opts() {
   fi
 
   __yo_compgen "$opts" "$cur"
-  __yo_check_completed "$cur" && __yo_finish_word
+  __yo_check_completed "'$cur'" && __yo_finish_word
 }
 
 # @param $1 string  Name of [generator]:[subgenerator] ('a:b', 'a:', ':b')
@@ -324,7 +324,7 @@ _yo_gens() {
 
   __yo_compgen "$gens" "$cur"
 
-  if __yo_check_completed "$cur"; then
+  if __yo_check_completed "'$cur'"; then
     case $cur in
       doctor) __yo_finish_word ;;
       *)      __yo_compgen "$cur:" "$cur"
@@ -332,12 +332,14 @@ _yo_gens() {
   fi
 }
 
-# @param $1 string  Current word to complete (cur) or empty string
+# @param $1 string  Current word to complete (cur), 'single-quoted',
+#                   or an empty string
 # @param $COMPREPLY global array  Generated completions
 # @return  True (0) if only 1 completion present and, either current word
 #          not supplied, or it matches the completion, False(>0) otherwise
 __yo_check_completed() {
-  if [[ ${#COMPREPLY[@]} -eq 1 && ( -z $1 || $1 == $COMPREPLY ) ]]; then
+  if [[ ${#COMPREPLY[@]} -eq 1 && ( -z $1 || $1 == "'$COMPREPLY'" ) ]]
+  then
     return 0
   fi
   return 1
