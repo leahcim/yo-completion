@@ -74,11 +74,12 @@ __yo_up_arr() {
   [ -n "${!1+set}" ] && eval "$1"'=( "${@:2}" )'
 }
 
-# @param $* string  Text string possibly containing quoted parts
+# @param $* string  Text possibly containing quoted parts. The argument
+#                   should have its whitespace squeezed
 # @stdout  String without original quoted parts and escaped quotes, with
-#          whitespace squeezed and all remaining tokens single-quoted
+#          all remaining tokens single-quoted
 __yo_eval_safe() {
-  local s old_s \
+  local s old_s pre_q pre_Q \
     q="'" Q='"'
 
   s=${*//\\[$q$Q]}  # remove all escaped quotes
@@ -86,9 +87,16 @@ __yo_eval_safe() {
   # remove all quoted text
   while [ "$old_s" != "$s" ]; do
     old_s=$s
-    s=$( echo $s |
-      sed -E "s/^([^$q$Q]*)$q[^$q]*$q/\1/;s/^([^$q$Q]*)$Q[^$Q]*$Q/\1/"
-    )
+    pre_q=${s%%$q*}
+
+    if [[ ${pre_q} != *$Q* ]]; then
+      s=${s#$pre_q}
+      s=$pre_q${s#$q*$q}
+    else
+      pre_Q=${s%%$Q*}
+      s=${s#$pre_Q}
+      s=$pre_Q${s#$Q*$Q}
+    fi
   done
 
   # escape remaining (non-matching) single quotes
