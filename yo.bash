@@ -74,16 +74,40 @@ __yo_up_arr() {
   [ -n "${!1+set}" ] && eval "$1"'=( "${@:2}" )'
 }
 
+# @param $* string  Text string possibly containing quoted parts
+# @stdout  String without original quoted parts and escaped quotes, with
+#          whitespace squeezed and all remaining tokens single-quoted
+__yo_eval_safe() {
+  local s old_s \
+    q="'" Q='"'
+
+  s=${*//\\[$q$Q]}  # remove all escaped quotes
+
+  # remove all quoted text
+  while [ "$old_s" != "$s" ]; do
+    old_s=$s
+    s=$( echo $s |
+      sed -E "s/^([^$q$Q]*)$q[^$q]*$q/\1/;s/^([^$q$Q]*)$Q[^$Q]*$Q/\1/"
+    )
+  done
+
+  # escape remaining (non-matching) single quotes
+  s=${s//$q/$q\\$q$q}
+
+  echo "'${s// /' '}'"  # print all remaining tokens, single-quoted
+}
+
 # @param $COMP_LINE global string  Words entered so far
 # @param $COMP_POINT global integer  Cursor position within $COMP_LINE
 # @modifies $cur string  Current word to complete, up to cursor
 # @modifies $cword integer  Index of the current word
-# @modifies $words array  Words typed up to cursor
+# @modifies $words array  Words typed up to cursor, without quoted parts
 __yo_get_comp_words() {
   local _cur _cword _words \
-    prev_char=${COMP_LINE:$(( COMP_POINT - 1 )):1}
+    prev_char=${COMP_LINE:$(( COMP_POINT - 1 )):1} \
+    line=$( __yo_eval_safe ${COMP_LINE:0:$COMP_POINT} )
 
-  eval "_words=( ${COMP_LINE:0:$COMP_POINT} )"
+  eval "_words=( $line )"
   [ "$prev_char" == ' ' ] && _words+=( '' )
 
   _cword=$(( ${#_words[@]} - 1 ))
@@ -364,6 +388,7 @@ _yo() {
   __yo_get_comp_words
 
   case $cur in
+   \"*|\'*) return ;;
     -*) _yo_opts    "$cur" "$cword" "${words[@]}" ;;
    *:*) _yo_subgens "$cur" "$cword" "${words[@]}" ;;
      *) _yo_gens    "$cur" "$cword" "${words[@]}"
