@@ -7,9 +7,9 @@ __yo_find_global_root() {
   local yo bin cli lib
 
   # No `readlink`? We're likely on Windows, so no links to read, anyway
-  [ -n "$(which readlink)" ] || return
+  type -t readlink > /dev/null || return
 
-  yo=$( which yo )                      # e.g. ./node_modules/.bin/yo
+  yo=$( type -P yo )                    # e.g. ./node_modules/.bin/yo
   bin=${yo%/yo}                         #      ./node_modules/.bin
   cli=$( readlink "$yo" )               #      ../yo/lib/cli.js
   lib=$( cd "$bin/${cli%/*}"; pwd -P )  # ~/.local/lib/node_modules/yo/lib
@@ -75,7 +75,7 @@ __yo_up_arr() {
 }
 
 # @param $* string  Text possibly containing quoted parts. The argument
-#                   should have its whitespace squeezed
+#                   should have its whitespace squeezed (not be quoted)
 # @stdout  String without original quoted parts and escaped quotes, with
 #          all remaining tokens single-quoted
 __yo_eval_safe() {
@@ -99,10 +99,8 @@ __yo_eval_safe() {
     fi
   done
 
-  # escape remaining (non-matching) single quotes
-  s=${s//$q/$q\\$q$q}
-
-  echo "'${s// /' '}'"  # print all remaining tokens, single-quoted
+  s=${s//$q/$q\\$q$q}     # escape remaining (non-matching) single quotes
+  echo "'${s// /$q $q}'"  # print all remaining tokens, single-quoted
 }
 
 # @param $COMP_LINE global string  Words entered so far
@@ -147,19 +145,23 @@ __yo_ltrim_colon_completions() {
 # @param $1 string  Path containing any of /../, \..\, /./ or \.\
 # @stdout  Normalised path
 __yo_collapse_path() {
-  local basename \
-    dirname="${1%[/\\]*}"
+  local dirname basename
 
-  # if top-level directory given (e.g. /usr), print it and return
-  # if only filename without path given, print it and return
-  case $dirname in
-    '') echo "$1" && return ;;
-    $1) [ -d "$dirname" ] || echo "$1" && return
+  case $1 in
+    ?*[/\\]*)                  # /usr/local, C:\, C:\Users ...
+      dirname=${1%[/\\]*}
+      basename=${1##*[/\\]} ;;
+    .|..)
+      dirname=$1 ;;
+    *)                         # /, /usr, foo ...
+      echo "$1"; return ;;
   esac
 
-  basename="${1##*[/\\]}"
-
-  [ -d "$dirname" ] && echo "$(cd "$dirname"; pwd)/${basename}"
+  if [ -d "$dirname" ]; then
+    echo -n "$(cd "$dirname"; pwd)"
+    [ "$basename" ] && echo -n "/$basename"
+    echo
+  fi
 }
 
 # @param $1 string  (Sub)generator name, in the format 'aa' or 'aa:bb'
