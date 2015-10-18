@@ -74,28 +74,28 @@ __yo_up_arr() {
   [ -n "${!1+set}" ] && eval "$1"'=( "${@:2}" )'
 }
 
-# @param $* string  Text possibly containing quoted parts. The argument
-#                   should have its whitespace squeezed (not be quoted)
-# @stdout  String without original quoted parts and escaped quotes, with
-#          all remaining tokens single-quoted
+# @param $* string  Text possibly containing quoted parts
+# @stdout  String without original quoted parts or escaped quotes, with
+#          all remaining tokens single-quoted and spaces sqeezed
 __yo_eval_safe() {
   local s old_s pre_q pre_Q \
     q="'" Q='"'
 
-  s=${*//\\[$q$Q]}  # remove all escaped quotes
+  s=${*//\\[$q$Q]}        # remove all escaped quotes
 
-  # remove all quoted text
   while [ "$old_s" != "$s" ]; do
     old_s=$s
-    pre_q=${s%%$q*}
+    s=${s//  / }          # squeeze spaces
+    s=${s% }              # trim space at the end
+    pre_q=${s%%$q*$q*}
+    pre_Q=${s%%$Q*$Q*}
 
-    if [[ ${pre_q} != *$Q* ]]; then
+    if [[ $pre_q < $pre_Q ]]; then
       s=${s#$pre_q}
-      s=$pre_q${s#$q*$q}
+      s=$pre_q${s#$q*$q}  # remove single-quoted text
     else
-      pre_Q=${s%%$Q*}
       s=${s#$pre_Q}
-      s=$pre_Q${s#$Q*$Q}
+      s=$pre_Q${s#$Q*$Q}  # remove double-quoted text
     fi
   done
 
@@ -397,8 +397,10 @@ _yo() {
 
   __yo_get_comp_words
 
+  # don't complete inside of quotes
+  [[ ${words[*]} == *[\"\']* ]] && return
+
   case $cur in
-   \"*|\'*) return ;;
     -*) _yo_opts    "$cur" "$cword" "${words[@]}" ;;
    *:*) _yo_subgens "$cur" "$cword" "${words[@]}" ;;
      *) _yo_gens    "$cur" "$cword" "${words[@]}"
